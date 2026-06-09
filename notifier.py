@@ -85,9 +85,12 @@ def format_alert_email(signal, token, base_url="http://localhost:8501"):
         risk = entry_est - stop_loss
         profit_target = entry_est + (2.0 * risk) if risk > 0 else entry_est * 1.05
         blueprint_intro = (
-            "This is a sample trade plan for a possible upward move. It is not saying the stock must go up. "
-            "It gives you a price to watch, a line where the idea is probably wrong, and a target where the reward "
-            "would be about twice the risk."
+            f"This section turns the signal into a simple plan: where the trade idea starts, where it is probably "
+            f"wrong, and where the first profit target would be. For this alert, the app is watching ${entry_est:.2f} "
+            f"as the possible buy area. If {ticker} falls to about ${stop_loss:.2f}, the setup is likely failing. "
+            f"If {ticker} rises toward ${profit_target:.2f}, the setup is working. The plan risks about "
+            f"${risk:.2f} per share to aim for about ${abs(profit_target - entry_est):.2f} per share, which is a "
+            "2-to-1 reward/risk setup."
         )
         entry_label = "Possible Buy Price"
         entry_help = (
@@ -111,8 +114,11 @@ def format_alert_email(signal, token, base_url="http://localhost:8501"):
         risk = stop_loss - entry_est
         profit_target = entry_est - (2.0 * risk) if risk > 0 else entry_est * 0.95
         blueprint_intro = (
-            "This is a sample risk-reduction plan for a possible downward move. It is not saying the stock must go down. "
-            "It gives you a price to watch, a line where the bearish warning is probably wrong, and a downside target."
+            f"This section turns the warning signal into a simple risk plan: where to review the position, where the "
+            f"warning is probably wrong, and where the downside target would be. For this alert, the app is watching "
+            f"${entry_est:.2f} as the review area. If {ticker} rises to about ${stop_loss:.2f}, the warning is likely "
+            f"failing. If {ticker} falls toward ${profit_target:.2f}, the warning is playing out. The plan risks about "
+            f"${risk:.2f} per share to watch for about ${abs(profit_target - entry_est):.2f} per share of downside move."
         )
         entry_label = "Risk Review Price"
         entry_help = (
@@ -180,11 +186,11 @@ def format_alert_email(signal, token, base_url="http://localhost:8501"):
                 <td style="padding: 4px 0; font-weight: 700; text-align: right;">${entry_est:.2f}</td>
             </tr>
             <tr>
-                <td style="padding: 4px 0; color: #718096;">Capital Protection Stop</td>
+                <td style="padding: 4px 0; color: #718096;">Stop-Loss / Exit If Wrong</td>
                 <td style="padding: 4px 0; font-weight: 700; text-align: right; color: #e53e3e;">${stop_loss:.2f}</td>
             </tr>
             <tr>
-                <td style="padding: 4px 0; color: #718096;">Profit Target (2:1 RR)</td>
+                <td style="padding: 4px 0; color: #718096;">First Profit Target</td>
                 <td style="padding: 4px 0; font-weight: 700; text-align: right; color: #38a169;">${profit_target:.2f}</td>
             </tr>
         </table>
