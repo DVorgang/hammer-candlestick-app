@@ -38,26 +38,28 @@ def get_google_stock_news(ticker, max_items=5):
 
 def get_volume_metrics(ticker):
     """
-    Calculates today's volume multiplier against the 20-day Volume Moving Average.
+    Calculates today's volume multiplier against the 20-day Volume Moving Average and fetches latest close price.
     """
     try:
         obj = yf.Ticker(ticker)
         hist = obj.history(period="1mo")
         if hist.empty or len(hist) < 15:
-            return {"vol_mult": 1.0, "latest_vol": 0, "vol_20ma": 0}
+            return {"vol_mult": 1.0, "latest_vol": 0, "vol_20ma": 0, "latest_price": 0.0}
             
         vol_20ma = hist["Volume"].iloc[-21:-1].mean() if len(hist) >= 21 else hist["Volume"].mean()
         latest_vol = float(hist["Volume"].iloc[-1])
         vol_mult = latest_vol / vol_20ma if vol_20ma > 0 else 1.0
+        latest_price = round(float(hist["Close"].iloc[-1]), 2) if "Close" in hist.columns else 0.0
         
         return {
             "vol_mult": round(float(vol_mult), 2),
             "latest_vol": int(latest_vol),
-            "vol_20ma": int(vol_20ma)
+            "vol_20ma": int(vol_20ma),
+            "latest_price": latest_price
         }
     except Exception as e:
         logging.error(f"Error fetching volume metrics for {ticker}: {e}")
-        return {"vol_mult": 1.0, "latest_vol": 0, "vol_20ma": 0}
+        return {"vol_mult": 1.0, "latest_vol": 0, "vol_20ma": 0, "latest_price": 0.0}
 
 def get_market_growth_candidates(max_candidates=100):
     """
@@ -129,6 +131,7 @@ def scan_ticker_for_growth_catalyst(ticker, min_vol_mult=2.0):
 
     return {
         "ticker": ticker.upper(),
+        "latest_price": vol_data.get("latest_price", 0.0),
         "vol_mult": vol_data["vol_mult"],
         "latest_vol": vol_data["latest_vol"],
         "vol_20ma": vol_data["vol_20ma"],
@@ -137,4 +140,5 @@ def scan_ticker_for_growth_catalyst(ticker, min_vol_mult=2.0):
         "should_evaluate_ai": has_vol_surge and has_keyword_news,
         "news": news_items
     }
+
 

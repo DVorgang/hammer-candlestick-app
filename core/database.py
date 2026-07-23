@@ -113,11 +113,30 @@ def init_db():
                 conn.execute("ALTER TABLE scheduler_state ADD COLUMN growth_start_timestamp TEXT;")
             if "growth_last_run_timestamp" not in s_columns:
                 conn.execute("ALTER TABLE scheduler_state ADD COLUMN growth_last_run_timestamp TEXT;")
-                
+
+            # Check outcome tracking columns in sent_alerts
+            cursor_a = conn.execute("PRAGMA table_info(sent_alerts);")
+            a_columns = [row["name"] for row in cursor_a.fetchall()]
+            alert_new_cols = [
+                ("entry_price", "REAL"),
+                ("stop_loss", "REAL"),
+                ("profit_target", "REAL"),
+                ("outcome_status", "TEXT DEFAULT 'pending'"),
+                ("exit_price", "REAL"),
+                ("exit_date", "TEXT"),
+                ("return_pct", "REAL"),
+                ("rsi_at_entry", "REAL"),
+                ("vol_mult_at_entry", "REAL")
+            ]
+            for col_name, col_type in alert_new_cols:
+                if col_name not in a_columns:
+                    conn.execute(f"ALTER TABLE sent_alerts ADD COLUMN {col_name} {col_type};")
+
         logging.info("Database initialized successfully.")
     except sqlite3.Error as e:
         logging.error(f"Error initializing database: {e}")
         raise
+
     finally:
         conn.close()
 
@@ -415,16 +434,22 @@ def has_alert_been_sent(subscriber_id, signal):
 
 def record_sent_alert(subscriber_id, signal):
     """
-    Records that a subscriber received this exact setup alert.
+    Records that a subscriber received this exact setup alert along with its trade blueprint math.
     """
     conn = get_db_connection()
     try:
+        entry_price = signal.get("day3_open") or signal.get("day2_close")
+        stop_loss = signal.get("stop_loss")
+        profit_target = signal.get("profit_target")
+        rsi_14 = signal.get("rsi_14")
+        vol_mult = signal.get("vol_mult")
+        
         with conn:
             conn.execute(
                 """
                 INSERT OR IGNORE INTO sent_alerts
-                    (subscriber_id, ticker, pattern_type, day1_date, day2_date)
-                VALUES (?, ?, ?, ?, ?)
+                    (subscriber_id, ticker, pattern_type, day1_date, day2_date, entry_price, stop_loss, profit_target, outcome_status, rsi_at_entry, vol_mult_at_entry)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
                 """,
                 (
                     subscriber_id,
@@ -432,6 +457,11 @@ def record_sent_alert(subscriber_id, signal):
                     signal["pattern_type"],
                     str(signal["day1_date"])[:10],
                     str(signal["day2_date"])[:10],
+                    entry_price,
+                    stop_loss,
+                    profit_target,
+                    rsi_14,
+                    vol_mult
                 )
             )
         return True
@@ -440,6 +470,197 @@ def record_sent_alert(subscriber_id, signal):
         return False
     finally:
         conn.close()
+
+
+def resolve_pending_alert_outcomes():
+    """
+    Evaluates all pending alerts against post-alert daily price history to resolve outcomes:
+    - Technical Setups (Hammer / Hanging Man):
+      - WIN: Price hit Profit Target (2:1 R/R)
+      - LOSS: Price hit Stop Loss
+      - TIMEOUT: Reached 10 trading bars without hitting target or stop
+    - Growth Setups (Growth_*):
+      - TIMEOUT: Reached 10 trading bars post-news; measures net return % over 10 trading bars
+    """
+    import yfinance as yf
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        rows = cursor.execute("""
+            SELECT id, ticker, pattern_type, day2_date, entry_price, stop_loss, profit_target 
+            FROM sent_alerts 
+            WHERE outcome_status = 'pending' AND entry_price IS NOT NULL
+        """).fetchall()
+        
+        if not rows:
+            return 0
+
+        resolved_count = 0
+        for r in rows:
+            alert_id = r["id"]
+            ticker = r["ticker"]
+            p_type = r["pattern_type"]
+            day2_str = r["day2_date"]
+            entry = float(r["entry_price"]) if r["entry_price"] is not None else None
+            stop = float(r["stop_loss"]) if r["stop_loss"] is not None else None
+            target = float(r["profit_target"]) if r["profit_target"] is not None else None
+            
+            if entry is None:
+                continue
+                
+            try:
+                hist = yf.Ticker(ticker).history(period="3mo")
+                if hist.empty:
+                    continue
+                hist = hist.reset_index()
+                hist['Date_Str'] = hist['Date'].astype(str).str[:10]
+                
+                # Find index of day2_date or closest date
+                match_indices = hist.index[hist['Date_Str'] == day2_str].tolist()
+                if not match_indices:
+                    match_indices = hist.index[hist['Date_Str'] >= day2_str].tolist()
+                    if not match_indices:
+                        continue
+                
+                start_idx = match_indices[0] + 1  # Day 3 onwards
+                future_bars = hist.iloc[start_idx : start_idx + 10]
+                
+                if future_bars.empty:
+                    continue
+                
+                status = "pending"
+                exit_price = None
+                exit_date = None
+                return_pct = None
+
+                if p_type in ("Hammer", "Hanging Man") and stop is not None and target is not None:
+                    for _, bar in future_bars.iterrows():
+                        b_high = float(bar['High'])
+                        b_low = float(bar['Low'])
+                        b_date = str(bar['Date_Str'])
+
+                        if p_type == "Hammer":  # Bullish Long
+                            if b_low <= stop:
+                                status = "loss"
+                                exit_price = stop
+                                exit_date = b_date
+                                return_pct = (stop - entry) / entry
+                                break
+                            elif b_high >= target:
+                                status = "win"
+                                exit_price = target
+                                exit_date = b_date
+                                return_pct = (target - entry) / entry
+                                break
+                        else:  # Hanging Man Short
+                            if b_high >= stop:
+                                status = "loss"
+                                exit_price = stop
+                                exit_date = b_date
+                                return_pct = (entry - stop) / entry
+                                break
+                            elif b_low <= target:
+                                status = "win"
+                                exit_price = target
+                                exit_date = b_date
+                                return_pct = (entry - target) / entry
+                                break
+
+                # Time-based resolution (10 trading bars elapsed) for technical timeouts or growth catalysts
+                if status == "pending" and len(future_bars) >= 10:
+                    last_bar = future_bars.iloc[-1]
+                    status = "timeout"
+                    exit_price = float(last_bar['Close'])
+                    exit_date = str(last_bar['Date_Str'])
+                    if p_type == "Hanging Man":
+                        return_pct = (entry - exit_price) / entry
+                    else:
+                        return_pct = (exit_price - entry) / entry
+
+                if status != "pending":
+                    with conn:
+                        conn.execute("""
+                            UPDATE sent_alerts 
+                            SET outcome_status = ?, exit_price = ?, exit_date = ?, return_pct = ? 
+                            WHERE id = ?
+                        """, (status, exit_price, exit_date, round(return_pct, 4) if return_pct is not None else None, alert_id))
+                    resolved_count += 1
+
+            except Exception as e:
+                logging.error(f"Error resolving alert outcome for id {alert_id} ({ticker}): {e}")
+
+        logging.info(f"Outcome Resolver processed {len(rows)} pending alerts and resolved {resolved_count} outcomes.")
+        return resolved_count
+
+    except sqlite3.Error as e:
+        logging.error(f"Database error resolving alert outcomes: {e}")
+        return 0
+    finally:
+        conn.close()
+
+
+
+def get_historical_accuracy_stats(ticker=None, pattern_type=None):
+    """
+    Calculates historical win rate and return percentage for resolved alerts.
+    """
+    conn = get_db_connection()
+    try:
+        query = "SELECT outcome_status, return_pct FROM sent_alerts WHERE outcome_status IN ('win', 'loss', 'timeout')"
+        params = []
+        if ticker:
+            query += " AND ticker = ?"
+            params.append(ticker.strip().upper())
+        if pattern_type:
+            query += " AND pattern_type = ?"
+            params.append(pattern_type)
+            
+        cursor = conn.cursor()
+        rows = cursor.execute(query, params).fetchall()
+        
+        if not rows:
+            return {"total_resolved": 0, "wins": 0, "losses": 0, "win_rate": None, "avg_return_pct": 0.0}
+            
+        total = len(rows)
+        wins = sum(1 for r in rows if r["outcome_status"] == "win")
+        losses = sum(1 for r in rows if r["outcome_status"] == "loss")
+        avg_ret = sum(r["return_pct"] or 0.0 for r in rows) / total
+        win_rate = (wins / total) if total > 0 else 0.0
+        
+        return {
+            "total_resolved": total,
+            "wins": wins,
+            "losses": losses,
+            "win_rate": round(win_rate, 4),
+            "avg_return_pct": round(avg_ret, 4)
+        }
+    except sqlite3.Error as e:
+        logging.error(f"Database error fetching accuracy stats: {e}")
+        return {"total_resolved": 0, "wins": 0, "losses": 0, "win_rate": None, "avg_return_pct": 0.0}
+    finally:
+        conn.close()
+
+
+def get_all_alert_outcomes(limit=50):
+    """
+    Fetches historical sent alerts with their resolved outcomes for UI reporting.
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        rows = cursor.execute("""
+            SELECT id, ticker, pattern_type, day1_date, day2_date, sent_at, entry_price, stop_loss, profit_target, outcome_status, exit_price, exit_date, return_pct
+            FROM sent_alerts
+            ORDER BY id DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+        return [dict(r) for r in rows]
+    except sqlite3.Error as e:
+        logging.error(f"Database error fetching alert outcomes: {e}")
+        return []
+    finally:
+        conn.close()
+
 
 def record_scan_log(duration_seconds, tickers_scanned, signals_found, alerts_sent, trigger_type="manual"):
     """

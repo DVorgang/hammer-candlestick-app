@@ -1,21 +1,43 @@
-# 📈 Candlestick Sentinel
+# 📈 Candlestick Sentinel & AI Growth Catalyst Engine
 
-**Candlestick Sentinel** is a full-stack algorithmic trading analysis system, web dashboard, and automated email alert scanner built with Python, Streamlit, and SQLite. 
+**Candlestick Sentinel** is a full-stack algorithmic trading analysis system, real-time web dashboard, and automated email alert scanner built with Python, Streamlit, Plotly, and SQLite.
 
-The application monitors stock watchlists for high-probability candlestick pattern reversals (**Hammer** for bullish reversals and **Hanging Man** for bearish reversals/warnings). It enforces a strict **3-day validation lifecycle** to eliminate lookahead bias, calculates exact 2:1 reward-to-risk trade blueprints, enriches signals with optional AI market analysis (OpenAI / Groq), and delivers styled HTML alerts directly to subscribers.
+The application combines **algorithmic technical pattern detection** with **whole-market fundamental AI news evaluation**. It monitors watchlists for high-probability candlestick pattern reversals (**Hammer** buy setups and **Hanging Man** risk warnings) using a strict **3-day confirmation lifecycle**, while simultaneously scanning the entire US stock market for **high-volume growth catalysts & unexpected contract wins** powered by an intelligent multi-model AI analyst fallback chain (Groq Llama 3.3-70B, Groq 8B, and Google Gemma 4).
 
 ---
 
-## 🚀 Key Features
+## 🚀 Core Feature Suites
 
-* **Rigid Pattern Detection**: Uses geometrical, volume, and indicator rules to identify Hammer and Hanging Man candlestick shapes.
-* **3-Day Confirmation Lifecycle**: Ensures zero lookahead bias by requiring Day 2 candle confirmation before generating Day 3 entry parameters.
-* **Automated Daily Background Scanner**: Headless CLI script (`daily_scanner.py`) suitable for cron jobs or Windows Task Scheduler.
-* **Interactive Streamlit Web Dashboard**: User authentication via 6-digit OTP codes, watchlist management, preference customization, live scanner, and backtest sandbox.
-* **Historical Backtesting Engine**: Test trading performance on any stock ticker over 2-year historical windows with detailed metrics (win rate, average return, win/loss breakdown, and trade logs).
-* **AI Analyst Layer (Optional)**: Synthesizes technical setups with plain-English market summaries, caution flags, and news/sector context using OpenAI (`gpt-5.4-nano` / web search) or Groq (`llama-3.3-70b-versatile`).
-* **HTML Email Notification Delivery**: Sends responsive HTML trade blueprints via SMTP (Gmail, custom server) with automatic fallback to simulated console logs.
-* **SQLite Persistence**: Dedicated local database (`sentinel.db`) tracking subscribers, watchlists, preferences, OTP codes, and duplicate alert history.
+### 1. 📊 Candlestick Technical Reversal Engine
+* **Rigid Pattern Detection**: Evaluates geometric proportions, volume spikes, and 14-period Wilder's RSI to detect Hammer and Hanging Man setups.
+* **3-Day Confirmation Lifecycle**: Eliminates lookahead bias by requiring Day 2 candle confirmation before generating Day 3 entry parameters.
+* **2:1 Reward-to-Risk Trade Blueprints**: Calculates exact Entry Price (Day 3 Open), Stop Loss (Day 1 Low/High $\pm \$0.01$), and Profit Target ($2:1$ R/R ratio).
+* **Gap Risk Protection**: Automatically invalidates setups if price gaps past the stop-loss level at market open.
+
+### 2. 🚀 Whole-Market AI Growth & Hidden Gem Catalyst Engine
+* **Market-Wide Screener**: Continuously monitors US equities via Yahoo Finance real-time screeners (`most_actives`, `day_gainers`, `small_cap_gainers`, `aggressive_small_caps`, `growth_technology_stocks`).
+* **Volume Surge Filtering**: Identifies stocks experiencing abnormal volume spikes ($\ge 2.0\text{x}$ 20-day Volume MA).
+* **Real-Time News Aggregation**: Scrape Google News RSS feeds for catalyst keywords (contract wins, FDA approvals, earnings beats, strategic partnerships, acquisitions).
+* **AI Fundamental Scoring**: Evaluates catalyst quality on a scale of $1.0 - 10.0$, generating alerts for high-growth catalysts ($\ge 7.0/10$).
+
+### 3. ⏰ Market-Aligned Auto-Schedulers
+* **Pre-Market Run — 9:00 AM EST** *(30 minutes before Open)*: Delivers fresh trade blueprints and evaluates overnight news before the opening bell.
+* **Post-Market Run — 4:30 PM EST** *(30 minutes after Close)*: Analyzes official closing prices and screens after-hours contract wins.
+* **Background Daemon Thread**: Runs headless inside Streamlit or CLI daemon loop (`init_scheduler_daemon()`) without blocking UI responsiveness.
+
+### 4. 🤖 Multi-Model AI Analyst & Resilient Fallback Cascade
+* **Automated Cascading Chain**: If a provider returns rate limit (HTTP 429) or quota errors, the engine seamlessly falls back down the chain:
+  $$\text{Groq Llama 3.3-70B} \longrightarrow \text{Groq Llama 3.1-8B} \longrightarrow \text{Google Gemma 4} \longrightarrow \text{Gemini Flash}$$
+* **Model Selection Override**: Control panel selector allows instant testing of specific AI models (`Groq-70B`, `Groq-8B`, `Gemma-4`, `Gemini-Flash`).
+* **Active Model Email Badging**: Every email notification explicitly states the exact AI model that performed the evaluation (e.g. `🤖 Gemma-4 (gemma-4-26b-a4b-it)`).
+
+### 5. 📈 Interactive Financial Analysis & Live Auto-Refresh
+* **Dedicated Stock Analysis Pages**: Full financial stats, Plotly gradient area & candlestick charts, 50/200 SMAs, RSI (14), historical signals, and 2-year strategy backtest logs.
+* **Live Quote Auto-Refresh**: Powered by Streamlit `@st.fragment` to update prices & charts without full-page reloads (`30s Recommended`, `15s Fast`, `60s`, `Off`) alongside a manual `🔄 Refresh Quote Now` button.
+
+### 6. 📧 Styled HTML Email Notifications
+* **Technical Trade Alerts**: Contains setup confidence scores, trade blueprint cards (Entry, Stop Loss, Target), risk math, and AI technical summaries.
+* **Growth Catalyst Alerts**: Includes live stock price, volume surge multiplier, AI catalyst rating, key drivers, risks, and clickable news headline links.
 
 ---
 
@@ -43,7 +65,7 @@ Trading candlestick patterns on the day of formation without confirmation often 
    - **Hanging Man Confirmation**: $\text{Close}_2 < \text{Low}_1$ (sellers confirmed downward pressure).
    - Unconfirmed setups are automatically discarded.
 3. **Day 3 (Execution & Blueprint Generation)**: 
-   - **Entry Price**: Estimated at Day 3 Open (or Day 2 Close).
+   - **Entry Price**: Estimated at Day 3 Open.
    - **Gap Risk Validation**: If Day 3 opens past the stop-loss level, the setup is invalidated and aborted.
    - **Stop Loss**: 
      - Hammer (Long): $\text{Day 1 Low} - 0.01$
@@ -51,180 +73,127 @@ Trading candlestick patterns on the day of formation without confirmation often 
    - **Profit Target**: Calculated using a $2:1$ Reward-to-Risk ratio:
      - Hammer: $\text{Entry} + 2.0 \times (\text{Entry} - \text{Stop Loss})$
      - Hanging Man: $\text{Entry} - 2.0 \times (\text{Stop Loss} - \text{Entry})$
-   - **Exit Rules**: Stop Loss hit, Profit Target hit, or time exit at the close of the 10th trading bar.
 
 ---
+
+## 🛠️ System Architecture & File Structure
 
 ## 🛠️ System Architecture & File Structure
 
 ```
 hammer_candlestick_app/
 │
-├── app.py               # Streamlit UI (Auth, Watchlist, Scanner, Backtester)
-├── pattern_engine.py    # Technical Analysis engine (yfinance, RSI, SMAs, Pattern rules)
-├── daily_scanner.py     # Headless background daily scan script (CLI / Task Scheduler)
-├── backtest.py          # Strategy backtester engine with zero lookahead bias
-├── database.py          # SQLite interface (sentinel.db schema & query helper functions)
-├── analyst_engine.py    # AI analyst integration layer (OpenAI / Groq API calls)
-├── notifier.py         # HTML email formatter & SMTP delivery engine
-├── local_env.py         # Lightweight .env loader without third-party dependencies
-├── requirements.txt     # Python package dependencies
-├── .env.example         # Environment configuration template
-└── sentinel.db          # SQLite database (auto-generated on first run)
+├── core/                       # Core Database & Environment Services
+│   ├── database.py             # SQLite schemas, subscribers, watchlists, outcome tracker
+│   └── local_env.py            # Environment file parser (.env)
+│
+├── engines/                    # Technical & Financial Analytics Engines
+│   ├── pattern_engine.py       # Geometric candlestick pattern detection, RSI, SMAs
+│   ├── growth_engine.py        # Market screener, volume metrics, Google News scraper
+│   └── backtest.py             # 2-Year strategy backtester engine
+│
+├── ai/                         # AI Analyst Integration & Fallback Cascade
+│   └── analyst_engine.py       # Multi-model cascade (Groq 70B/8B, Gemma-4, Gemini)
+│
+├── notifications/              # Email Formatting & Delivery
+│   └── notifier.py             # HTML email formatters & SMTP TLS delivery engine
+│
+├── scanners/                   # Headless Background Scanners
+│   ├── daily_scanner.py        # Watchlist technical reversal scanner
+│   └── growth_scanner.py       # Whole-market AI growth catalyst scanner
+│
+├── tests/                      # Integration & Automated Verification Tests
+│   ├── test_gemini.py          # AI fallback & model selection test suite
+│   └── test_learning_loop.py   # Outcome tracker & learning loop test suite
+│
+├── app.py                      # Main Streamlit Web Application Entrypoint
+├── requirements.txt            # Package dependencies
+├── .env                        # Local environment configuration
+└── README.md                   # System documentation
 ```
 
 ### Module Responsibilities
 
-* **[app.py](file:///c:/Users/Devin/Documents/hammer_candlestick_app/app.py)**: Main entry point for the Streamlit web application. Handles OTP sign-in/registration, watchlist modification, preference toggles, live watchlist scanning, visual HTML email previews, and backtest execution.
-* **[pattern_engine.py](file:///c:/Users/Devin/Documents/hammer_candlestick_app/pattern_engine.py)**: Downloads price data via `yfinance`, calculates Wilder's 14-period RSI, 50/200 SMAs, 20-day Volume MA, evaluates geometric candle rules, and computes confidence scores.
-* **[daily_scanner.py](file:///c:/Users/Devin/Documents/hammer_candlestick_app/daily_scanner.py)**: Batch processes all registered subscribers, downloads ticker data (with caching to avoid redundant API hits), evaluates user alert preferences, performs gap risk checks, enriches signals with AI context, checks duplicate sent alerts, and dispatches email notifications.
-* **[backtest.py](file:///c:/Users/Devin/Documents/hammer_candlestick_app/backtest.py)**: Simulates the 3-day strategy across 2 years of historical daily data, enforcing strict entry/exit conditions and returning trade logs and performance metrics.
-* **[database.py](file:///c:/Users/Devin/Documents/hammer_candlestick_app/database.py)**: SQLite interface managing `subscribers`, `watchlists`, and `sent_alerts` tables, foreign keys, unique constraints, and OTP generation/verification.
-* **[analyst_engine.py](file:///c:/Users/Devin/Documents/hammer_candlestick_app/analyst_engine.py)**: Constructs structured prompts for AI models, optionally uses OpenAI web search preview to inspect recent news/earnings context, and validates JSON responses for email rendering.
-* **[notifier.py](file:///c:/Users/Devin/Documents/hammer_candlestick_app/notifier.py)**: Renders CSS-styled HTML email alert templates containing trading blueprints, risk math, AI notes, and technical indicator metrics. Handles SMTP TLS transmission.
+* **`core/database.py`**: Manages SQLite tables (`subscribers`, `watchlists`, `sent_alerts`, `scheduler_state`, `scan_logs`), post-trade outcome resolution, and historical accuracy stats queries.
+* **`core/local_env.py`**: Zero-dependency environment file parser.
+* **`engines/pattern_engine.py`**: Computes technical indicators (RSI, SMAs, Volume MA), evaluates 3-day candlestick setup rules, and applies empirical win-rate calibration.
+* **`engines/growth_engine.py`**: Queries Yahoo Finance real-time screeners, tracks volume multipliers, and parses Google News RSS feeds for catalyst headlines.
+* **`engines/backtest.py`**: Simulates 2-year strategy backtesting with zero lookahead bias.
+* **`ai/analyst_engine.py`**: Implements the cascading AI fallback chain (`Groq-70B` $\to$ `Groq-8B` $\to$ `Gemma-4` $\to$ `Gemini-Flash`), injects track record stats into prompts, and parses JSON responses.
+* **`notifications/notifier.py`**: Generates responsive HTML email alerts for technical trade blueprints and growth catalyst alerts.
+* **`scanners/daily_scanner.py`**: Headless CLI & scheduler entrypoint for watchlist technical reversal setups.
+* **`scanners/growth_scanner.py`**: Headless CLI & scheduler entrypoint for whole-market AI growth catalyst scans.
+* **`app.py`**: Main entrypoint for the Streamlit web application. Renders OTP authentication, watchlist grid, scheduler control panel, live layout inspector, system learning matrix, and interactive stock analysis pages.
 
----
-
-## 📦 Setup & Installation
-
-### 1. Prerequisites
-* Python 3.9 or higher
-* `pip` package manager
-
-### 2. Clone Repository & Setup Virtual Environment
-```bash
-git clone <repository-url>
-cd hammer_candlestick_app
-
-# Create a virtual environment
-python -m venv venv
-
-# Activate virtual environment
-# On Windows:
-venv\Scripts\activate
-# On macOS/Linux:
-source venv/bin/activate
-```
-
-### 3. Install Dependencies
-```bash
-pip install -r requirements.txt
-```
 
 ---
 
 ## ⚙️ Environment Configuration
 
-Copy `.env.example` to `.env` in the project root directory:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` to configure your email SMTP server and AI provider options:
+Create a `.env` file in the root directory (or edit your existing `.env`):
 
 ```ini
-# SMTP Email Credentials (Optional - Falls back to console logging if omitted)
+# SMTP Email Server Credentials (Optional - logs to console if omitted)
 SMTP_SERVER=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USERNAME=your.email@gmail.com
 SMTP_PASSWORD=your_gmail_app_password
 
-# AI Analyst Provider Settings ("groq" or "openai")
-AI_PROVIDER=openai
-OPENAI_API_KEY=your_openai_api_key
-GROQ_API_KEY=your_groq_api_key
+# Groq API Key (Fast 70B / 8B Llama Inference)
+GROQ_API_KEY=gsk_your_groq_api_key
 
-# AI Analyst Behavior
+# Google AI Studio API Key (Gemma-4 & Gemini Flash)
+GEMINI_API_KEY=AIzaSy_your_gemini_api_key
+
+# Optional OpenAI Key
+OPENAI_API_KEY=sk_your_openai_key
+
+# AI Configuration
 AI_ANALYST_ENABLED=true
-AI_ANALYST_MODEL=gpt-5.4-nano
-AI_ANALYST_WEB_SEARCH=false
+AI_ANALYST_MODEL=llama-3.3-70b-versatile
 ```
-
-> **Note**: For Gmail SMTP delivery, generate an **App Password** via your Google Account Security settings.
 
 ---
 
-## 🖥️ Running the Application
+## 🚀 Running the Application
 
-### 1. Start the Streamlit Web App
-Launch the interactive control panel:
+### 1. Launch the Interactive Web Dashboard
 ```bash
 streamlit run app.py
 ```
 Open your browser at `http://localhost:8501`.
 
-#### Web App Features:
-1. **Authentication**: Enter your email to receive a 6-digit OTP code. (In local development, the generated code is also displayed in a developer banner).
-2. **Watchlist & Preferences**: Add/remove tickers (e.g., `NVDA`, `AMD`, `PLTR`), toggle alert categories (**Buy Opportunities**, **Risk Warnings**, **Sell Alerts**), or test email sending.
-3. **Live Watchlist Scanner**: Interactively scan your watchlist over the past 10 trading days and inspect the rendered HTML alert layout.
-4. **Backtester Sandbox**: Run a 2-year strategy backtest for any ticker symbol to inspect trade logs and performance metrics.
-
----
-
-### 2. Run the Daily Background Scanner
-Run the daily scanner CLI script manually or schedule it:
+### 2. Run Manual Scans via CLI
 ```bash
+# Run Technical Reversal Scan across watchlists
 python daily_scanner.py --days 3
+
+# Run Whole-Market AI Growth Catalyst Scan
+python growth_scanner.py
 ```
-
-#### CLI Options:
-* `--days` (default: `3`): Specifies how many past daily bars to scan for confirmed setups.
-
-#### Automating with Cron (Linux/macOS):
-To run the scanner every weekday at 4:30 PM EST (after market close):
-```cron
-30 16 * * 1-5 /path/to/venv/bin/python /path/to/hammer_candlestick_app/daily_scanner.py --days 3 >> /path/to/daily_scanner.log 2>&1
-```
-
-#### Automating with Windows Task Scheduler:
-1. Create a basic task in Windows Task Scheduler.
-2. Action: **Start a program**.
-3. Program: `C:\path\to\venv\Scripts\python.exe`
-4. Arguments: `daily_scanner.py --days 3`
-5. Start in: `C:\path\to\hammer_candlestick_app`
 
 ---
 
 ## 🧪 Backtesting Engine
 
-The backtesting engine (`backtest.py`) evaluates historical strategy performance while strictly adhering to the 3-day validation rules:
+The backtesting engine (`backtest.py`) simulates historical execution across 2 years of daily bar data:
 
-* **Zero Lookahead Bias**: Pattern identified on Day 1 $\to$ Confirmation verified on Day 2 $\to$ Entry executed at Day 3 Open.
-* **Trade Management**: Stop Loss set to Day 1 Low/High $\pm 0.01$, Take Profit set at 2:1 R/R ratio.
-* **Max Hold Time**: Trades automatically exit at market close on the 10th bar if neither Stop Loss nor Take Profit is hit.
-* **Performance Metrics Output**:
-  - Total Trades Executed
-  - Win Rate (%)
-  - Average Return per Trade (%)
-  - Breakdown of Wins, Losses, and Timeouts
-  - Detailed Trade Log DataFrame
-
----
-
-## 🤖 AI Analyst Integration
-
-When enabled (`AI_ANALYST_ENABLED=true`), the system sends detected technical setups to the configured AI provider after pattern confirmation.
-
-* **OpenAI Integration**: Supports standard completion models and web search tools (`web_search_preview`) to fetch live news, earnings schedules, and sector developments.
-* **Groq Integration**: Fast inference using models such as `llama-3.3-70b-versatile`.
-* **Structured Output**: Returns structured JSON containing:
-  - `status`: AI availability indicator.
-  - `summary`: Concise beginner-friendly explanation of market conditions.
-  - `caution_flags`: List of key risk factors (e.g., upcoming earnings, high volatility).
-  - `supporting_context`: Broad sector or macroeconomic context.
-  - `plain_english_takeaway`: Bottom-line summary for beginners.
+* **Zero Lookahead Bias**: Setup on Day 1 $\to$ Confirmation on Day 2 $\to$ Entry at Day 3 Open.
+* **Risk Management**: Stop Loss set to Day 1 Low/High $\pm \$0.01$, Take Profit set at 2:1 R/R ratio.
+* **Max Holding Time**: Auto-exits at market close on the 10th bar if neither Stop Loss nor Target is reached.
+* **Metrics Returned**: Win Rate (%), Total Trades, Average Return per Trade (%), Win/Loss Breakdown, and Trade Log DataFrame.
 
 ---
 
 ## 🗄️ Database Schema
 
-The SQLite database (`sentinel.db`) consists of three relational tables:
+The SQLite database (`sentinel.db`) manages relational application state:
 
 ```mermaid
 erDiagram
     subscribers ||--o{ watchlists : "monitors"
     subscribers ||--o{ sent_alerts : "receives"
+    subscribers ||--o{ scan_logs : "records"
 
     subscribers {
         int id PK
@@ -233,8 +202,7 @@ erDiagram
         int wants_buys
         int wants_risks
         int wants_sells
-        string otp_code
-        string otp_expiry
+        int wants_growth
         string created_at
     }
 
@@ -259,5 +227,5 @@ erDiagram
 
 ## ⚠️ Disclaimer
 
-* **Educational & Informational Purpose Only**: Candlestick Sentinel is built for technical analysis research and educational purposes. It does **not** provide financial, investment, or legal advice.
-* **Market Risk**: Trading stocks, options, and financial instruments involves substantial risk of loss. Always perform independent research and consult a licensed financial advisor before executing real financial transactions.
+* **Educational & Informational Purpose Only**: Candlestick Sentinel is designed for algorithmic trading research and technical analysis education. It does **not** constitute financial, investment, or trading advice.
+* **Market Risk**: Trading equities involves significant risk of loss. Always perform independent due diligence before placing financial orders.

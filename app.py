@@ -1,20 +1,22 @@
 from datetime import timedelta
 from datetime import datetime
 import streamlit as st
-from local_env import load_env_file
-
-load_env_file()
-
-import database
-import pattern_engine
-import backtest
-import notifier
-import analyst_engine
 import pandas as pd
 import yfinance as yf
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import logging
+import threading
+import time
+
+from core.local_env import load_env_file
+load_env_file()
+
+from core import database
+from engines import pattern_engine, growth_engine, backtest
+from ai import analyst_engine
+from notifications import notifier
+from scanners import daily_scanner, growth_scanner
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -26,11 +28,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-import threading
-import time
-import daily_scanner
-import growth_scanner
-import growth_engine
 
 # Background Auto-Scheduler Daemon Thread Setup
 _scheduler_thread = None
@@ -45,42 +42,54 @@ def parse_dt(ts_str):
             pass
     return None
 
+def _should_trigger_market_slot_scan(last_run_str):
+    """
+    Determines if a scheduled scan should trigger based on market wall-clock schedule:
+    - Slot 1: Pre-Market Preparation & Blueprint Delivery (9:00 AM EST)
+    - Slot 2: Post-Market Settlement & After-Hours News (4:30 PM EST)
+    """
+    now = datetime.now()
+    last_dt = parse_dt(last_run_str)
+    
+    if not last_dt:
+        return True  # If never run, run initial scan immediately on activation
+        
+    today_slot1 = datetime(now.year, now.month, now.day, 9, 0)
+    today_slot2 = datetime(now.year, now.month, now.day, 16, 30)
+    
+    # Trigger 4:30 PM evening slot if now >= 4:30 PM and last run was prior to 4:30 PM today
+    if now >= today_slot2 and last_dt < today_slot2:
+        return True
+        
+    # Trigger 9:00 AM morning slot if now >= 9:00 AM and last run was prior to 9:00 AM today
+    if now >= today_slot1 and last_dt < today_slot1:
+        return True
+        
+    return False
+
 def _run_background_scheduler_loop():
     while True:
         try:
             state = database.get_scheduler_state()
             if state:
-                # 1. Candlestick Technical Auto-Scheduler
+                # 1. Candlestick Technical Auto-Scheduler (Market Schedule: 9:00 AM & 4:30 PM EST)
                 if state.get("is_active"):
                     last_run = state.get("last_run_timestamp")
-                    should_run = False
-                    if not last_run:
-                        should_run = True
-                    else:
-                        last_dt = parse_dt(last_run)
-                        if not last_dt or (datetime.now() - last_dt >= timedelta(hours=12)):
-                            should_run = True
-                    
-                    if should_run:
+                    if _should_trigger_market_slot_scan(last_run):
+                        logging.info("⏰ Triggering Scheduled Technical Reversal Scan (Market Schedule: 9:00 AM / 4:30 PM EST)")
                         daily_scanner.run_daily_scan(days_to_scan=3, trigger_type="scheduled")
 
-                # 2. AI Growth Catalyst Auto-Scheduler
+                # 2. AI Growth Catalyst Auto-Scheduler (Market Schedule: 9:00 AM & 4:30 PM EST)
                 if state.get("growth_is_active"):
                     g_last_run = state.get("growth_last_run_timestamp")
-                    g_should_run = False
-                    if not g_last_run:
-                        g_should_run = True
-                    else:
-                        g_last_dt = parse_dt(g_last_run)
-                        if not g_last_dt or (datetime.now() - g_last_dt >= timedelta(hours=12)):
-                            g_should_run = True
-
-                    if g_should_run:
+                    if _should_trigger_market_slot_scan(g_last_run):
+                        logging.info("⏰ Triggering Scheduled AI Growth Catalyst Scan (Market Schedule: 9:00 AM / 4:30 PM EST)")
                         growth_scanner.run_growth_scan(trigger_type="scheduled")
 
         except Exception as e:
             logging.error(f"Error in background scheduler loop: {e}")
         time.sleep(60)
+
 
 def init_scheduler_daemon():
     global _scheduler_thread
@@ -650,29 +659,7 @@ def render_plotly_stock_chart(ticker, timeframe, chart_style):
     
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
-def render_stock_detail_page(ticker, subscriber, token):
-    # Top Action Navigation Bar
-    nav_col1, nav_col2 = st.columns([1, 1])
-    with nav_col1:
-        if st.button("⬅️ Back to Control Panel", use_container_width=False):
-            st.session_state.selected_ticker_detail = None
-            st.rerun()
-            
-    watchlist = database.get_watchlist(subscriber["id"]) if subscriber else []
-    in_watchlist = ticker in watchlist
-    with nav_col2:
-        if subscriber:
-            if in_watchlist:
-                if st.button(f"🗑️ Remove {ticker} from Watchlist", key="btn_remove_detail"):
-                    database.remove_watchlist_ticker(subscriber["id"], ticker)
-                    st.toast(f"Removed {ticker} from watchlist.", icon="🗑️")
-                    st.rerun()
-            else:
-                if st.button(f"➕ Add {ticker} to Watchlist", key="btn_add_detail", type="primary"):
-                    database.add_watchlist_ticker(subscriber["id"], ticker)
-                    st.toast(f"Added {ticker} to watchlist!", icon="⭐")
-                    st.rerun()
-
+def _render_stock_body(ticker, subscriber, token):
     # Load Ticker Metadata & Historical Market Data
     with st.spinner(f"Downloading real-time financial statistics & chart for {ticker}..."):
         ticker_obj = yf.Ticker(ticker)
@@ -703,6 +690,7 @@ def render_stock_detail_page(ticker, subscriber, token):
     change_sign = "+" if price_change >= 0 else ""
     
     latest_date_str = str(latest['Date'])[:10] if 'Date' in latest else "Latest Close"
+    now_time_str = datetime.now().strftime("%I:%M:%S %p EST")
     
     # 1. Big Header Banner (Matching User Screenshot Layout)
     st.markdown(f"""
@@ -710,7 +698,12 @@ def render_stock_detail_page(ticker, subscriber, token):
         <div style="display: flex; justify-content: space-between; align-items: flex-end;">
             <div>
                 <h1 style="margin: 0; font-size: 2.3rem; font-weight: 800; color: #f8fafc; font-family: sans-serif;">{company_name} ({ticker})</h1>
-                <span style="color: #94a3b8; font-size: 0.95rem; font-weight: 500;">{exchange}: {ticker} · Real-Time Price · {currency}</span>
+                <span style="color: #94a3b8; font-size: 0.95rem; font-weight: 500;">{exchange}: {ticker} · Live Price Quote · {currency}</span>
+            </div>
+            <div style="text-align: right;">
+                <span style="display: inline-block; background-color: #0f172a; color: #38bdf8; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 9999px; border: 1px solid #1e293b;">
+                    🟢 Live Updated at {now_time_str}
+                </span>
             </div>
         </div>
         <div style="margin-top: 12px; display: flex; align-items: baseline; gap: 12px;">
@@ -777,6 +770,8 @@ def render_stock_detail_page(ticker, subscriber, token):
         "🔍 Pattern Signals", 
         "🧪 Strategy Backtest"
     ])
+
+
     
     # TAB 1: OVERVIEW (Matching User Screenshot Layout)
     with tab_overview:
@@ -1097,10 +1092,65 @@ def render_stock_detail_page(ticker, subscriber, token):
                     "Setup Date", "Pattern", "Score", "Entry Date", "Entry Price",
                     "Stop Loss", "Profit Target", "Exit Date", "Exit Price", "Exit Reason", "Return"
                 ]
-                st.dataframe(bt_df, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
+def render_stock_detail_page(ticker, subscriber, token):
+    # Top Action Navigation & Refresh Bar
+    nav_col1, nav_col2, nav_col3, nav_col4 = st.columns([2, 2, 3, 2])
+    with nav_col1:
+        if st.button("⬅️ Back to Control Panel", use_container_width=True):
+            st.session_state.selected_ticker_detail = None
+            st.rerun()
+            
+    with nav_col2:
+        if st.button("🔄 Refresh Quote Now", use_container_width=True, key=f"btn_manual_refresh_{ticker}"):
+            st.toast(f"Refreshed live data for {ticker}!", icon="🔄")
+            st.rerun()
+
+    with nav_col3:
+        refresh_mode = st.selectbox(
+            "Auto Refresh Rate",
+            ["⏱️ Auto-Refresh: 30s (Rec.)", "⚡ Auto-Refresh: 15s (Fast)", "⏳ Auto-Refresh: 60s", "🛑 Auto-Refresh: Off"],
+            key=f"auto_refresh_select_{ticker}",
+            label_visibility="collapsed"
+        )
+
+    watchlist = database.get_watchlist(subscriber["id"]) if subscriber else []
+    in_watchlist = ticker in watchlist
+    with nav_col4:
+        if subscriber:
+            if in_watchlist:
+                if st.button("🗑️ Remove Watchlist", key="btn_remove_detail", use_container_width=True):
+                    database.remove_watchlist_ticker(subscriber["id"], ticker)
+                    st.toast(f"Removed {ticker} from watchlist.", icon="🗑️")
+                    st.rerun()
+            else:
+                if st.button("➕ Add Watchlist", key="btn_add_detail", type="primary", use_container_width=True):
+                    database.add_watchlist_ticker(subscriber["id"], ticker)
+                    st.toast(f"Added {ticker} to watchlist!", icon="⭐")
+                    st.rerun()
+
+    # Route auto-refresh interval based on dropdown selection
+    if "15s" in refresh_mode:
+        @st.fragment(run_every=15)
+        def _draw_15():
+            _render_stock_body(ticker, subscriber, token)
+        _draw_15()
+    elif "30s" in refresh_mode:
+        @st.fragment(run_every=30)
+        def _draw_30():
+            _render_stock_body(ticker, subscriber, token)
+        _draw_30()
+    elif "60s" in refresh_mode:
+        @st.fragment(run_every=60)
+        def _draw_60():
+            _render_stock_body(ticker, subscriber, token)
+        _draw_60()
+    else:
+        _render_stock_body(ticker, subscriber, token)
+
 def render_management_dashboard(subscriber, token):
+
     if st.session_state.get("selected_ticker_detail"):
         render_stock_detail_page(st.session_state.selected_ticker_detail, subscriber, token)
         return
@@ -1272,6 +1322,8 @@ def render_management_dashboard(subscriber, token):
     # TAB 2: SCANNER, ALERTS & BACKTESTING
     # ----------------------------------------------------
     with tab_hub:
+
+
         # SECTION 1: AUTOMATED SCANNER & SCHEDULER CONTROL
         sched_state = database.get_scheduler_state()
         
@@ -1344,7 +1396,7 @@ def render_management_dashboard(subscriber, token):
                     st.session_state.pending_toast = f"Technical scan complete! Took {dur:.2f}s."
                     st.rerun()
 
-            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Twice-Daily Auto-Scheduler:</p>", unsafe_allow_html=True)
+            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Market-Aligned Auto-Scheduler (9:00 AM & 4:30 PM EST):</p>", unsafe_allow_html=True)
             toggle_label = "🛑 Stop Technical Auto-Scheduler" if is_sched_active else "⚡ Start Technical Auto-Scheduler"
             btn_type = "secondary" if is_sched_active else "primary"
             if st.button(toggle_label, type=btn_type, use_container_width=True, key="btn_tech_sched"):
@@ -1385,7 +1437,8 @@ def render_management_dashboard(subscriber, token):
                     st.session_state.pending_toast = f"Growth catalyst scan complete! Took {dur:.2f}s."
                     st.rerun()
 
-            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Twice-Daily Auto-Scheduler:</p>", unsafe_allow_html=True)
+            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Market-Aligned Auto-Scheduler (9:00 AM & 4:30 PM EST):</p>", unsafe_allow_html=True)
+
             g_toggle_label = "🛑 Stop Growth Auto-Scheduler" if is_growth_active else "🚀 Start Growth Auto-Scheduler"
             g_btn_type = "secondary" if is_growth_active else "primary"
             if st.button(g_toggle_label, type=g_btn_type, use_container_width=True, key="btn_growth_sched"):
@@ -1491,8 +1544,54 @@ def render_management_dashboard(subscriber, token):
                             ]
                             st.dataframe(trade_df, use_container_width=True)
 
+        # SECTION 3: SYSTEM LEARNING & OUTCOME PERFORMANCE MATRIX
+        with st.expander("🧠 System Learning & Post-Trade Outcome Matrix", expanded=True):
+            st.write("Candlestick Sentinel continuously tracks post-alert price action to evaluate setup accuracy, feed outcomes back into AI analysis, and dynamically calibrate confidence scoring:")
+            
+            stats = database.get_historical_accuracy_stats()
+            outcomes = database.get_all_alert_outcomes(limit=20)
+            
+            sc1, sc2, sc3, sc4 = st.columns(4)
+            with sc1:
+                st.markdown(f'<div class="metric-value">{stats["total_resolved"]}</div>', unsafe_allow_html=True)
+                st.markdown('<div class="metric-label">Total Resolved Signals</div>', unsafe_allow_html=True)
+            with sc2:
+                wr_str = f"{stats['win_rate']:.1%}" if stats['win_rate'] is not None else "N/A"
+                st.markdown(f'<div class="metric-value" style="color: #38df88;">{wr_str}</div>', unsafe_allow_html=True)
+                st.markdown('<div class="metric-label">Historical Win Rate</div>', unsafe_allow_html=True)
+            with sc3:
+                ret_str = f"{stats['avg_return_pct']:.2%}" if stats['avg_return_pct'] is not None else "0.00%"
+                st.markdown(f'<div class="metric-value">{ret_str}</div>', unsafe_allow_html=True)
+                st.markdown('<div class="metric-label">Avg Return per Alert</div>', unsafe_allow_html=True)
+            with sc4:
+                st.markdown(f'<div class="metric-value">{stats["wins"]} W / {stats["losses"]} L</div>', unsafe_allow_html=True)
+                st.markdown('<div class="metric-label">Win / Loss Ratio</div>', unsafe_allow_html=True)
+                
+            st.write("---")
+            if not outcomes:
+                st.info("No recorded setup alerts in database yet. Run a daily scan above to generate your first alert blueprint!")
+            else:
+                st.write("**Recent Alert Outcome Audit Log:**")
+                out_df = pd.DataFrame(outcomes)
+                out_df["Entry"] = out_df["entry_price"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
+                out_df["Stop Loss"] = out_df["stop_loss"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
+                out_df["Target"] = out_df["profit_target"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
+                out_df["Exit Price"] = out_df["exit_price"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
+                out_df["Return"] = out_df["return_pct"].map(lambda x: f"{x:.2%}" if (pd.notna(x) and x is not None) else "N/A")
+                out_df["Status"] = out_df["outcome_status"].map(lambda x: "🟢 WIN (Target Hit)" if x == "win" else ("🔴 LOSS (Stop Hit)" if x == "loss" else ("⏳ TIMEOUT" if x == "timeout" else "🟡 Pending Evaluation")))
+                
+                out_df = out_df.rename(columns={
+                    "ticker": "Ticker",
+                    "pattern_type": "Pattern",
+                    "sent_at": "Alert Sent At",
+                    "day1_date": "Setup Date"
+                })
+                st.dataframe(out_df[["Ticker", "Pattern", "Setup Date", "Entry", "Stop Loss", "Target", "Status", "Exit Price", "Return"]], use_container_width=True, hide_index=True)
+
+
         # SECTION 4: EXPANDABLE DROPDOWNS FOR LOGS & UTILITIES
         with st.expander("📄 View Recent Scanner Run Logs", expanded=False):
+
             logs = database.get_all_scan_logs(limit=10)
             if not logs:
                 st.info("No scanner execution logs recorded yet. Click 'Run Instant Daily Scan Now' above to perform your first scan!")
@@ -1510,8 +1609,29 @@ def render_management_dashboard(subscriber, token):
                 st.table(log_df[["Timestamp", "Trigger Type", "Duration", "Tickers", "Setups Found", "Alerts Sent"]])
 
         with st.expander("📧 Email Delivery Tester & Layout Inspector", expanded=False):
-            st.write("Send a test alert email to your address or inspect how Groq AI formats email notifications:")
+            st.write("Send a test alert email to your address or inspect how different AI models format email notifications:")
             
+            model_options = [
+                "⚡ Auto (Default Fallback Chain)",
+                "🔥 Groq 70B (llama-3.3-70b-versatile)",
+                "⚡ Groq 8B (llama-3.1-8b-instant)",
+                "✨ Gemma 4 (gemma-4-26b-a4b-it)",
+                "🚀 Gemini Flash (gemini-2.0-flash)"
+            ]
+            selected_model_label = st.selectbox(
+                "🤖 Select AI Model Provider for Test Email:",
+                model_options,
+                key="test_email_model_selectbox"
+            )
+            
+            forced_model_map = {
+                "🔥 Groq 70B (llama-3.3-70b-versatile)": "Groq-70B",
+                "⚡ Groq 8B (llama-3.1-8b-instant)": "Groq-8B",
+                "✨ Gemma 4 (gemma-4-26b-a4b-it)": "Gemma-4",
+                "🚀 Gemini Flash (gemini-2.0-flash)": "Gemini-Flash"
+            }
+            forced_model_arg = forced_model_map.get(selected_model_label)
+
             c_test1, c_test2 = st.columns(2)
             
             with c_test1:
@@ -1530,26 +1650,27 @@ def render_management_dashboard(subscriber, token):
                         "day2_date": "2026-06-08",
                         "day2_close": 125.0
                     }
-                    with st.spinner("Running Groq AI analyst check..."):
-                        ai_analysis = analyst_engine.analyze_signal(mock_signal)
+                    with st.spinner(f"Running AI analyst check via {selected_model_label}..."):
+                        ai_analysis = analyst_engine.analyze_signal(mock_signal, forced_model=forced_model_arg)
                     if ai_analysis:
                         mock_signal["ai_analysis"] = ai_analysis
                     email_html = notifier.format_alert_email(mock_signal, token)
                     real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], email_html, mock_ticker)
                     
+                    model_tag = (ai_analysis.get("ai_model_used") if ai_analysis else None) or "AI"
                     if real_sent:
-                        st.success(f"✅ Technical Alert Sent: {status_msg}")
+                        st.success(f"✅ Technical Alert Sent via {model_tag}: {status_msg}")
                     else:
-                        st.info(f"ℹ️ {status_msg}")
-                    st.session_state.inspect_html = ("Technical Reversal Alert", email_html)
+                        st.info(f"ℹ️ [{model_tag}] {status_msg}")
+                    st.session_state.inspect_html = (f"Technical Reversal Alert ({model_tag})", email_html)
                     st.rerun()
 
             with c_test2:
                 if st.button("🚀 Test Growth Catalyst Email", use_container_width=True, key="btn_test_growth_email"):
                     mock_ticker = watchlist[0] if watchlist else "AMD"
-                    with st.spinner(f"Evaluating real-time growth catalysts for {mock_ticker} with Groq AI..."):
+                    with st.spinner(f"Evaluating real-time growth catalysts for {mock_ticker} via {selected_model_label}..."):
                         g_payload = growth_engine.scan_ticker_for_growth_catalyst(mock_ticker)
-                        g_res = analyst_engine.evaluate_growth_catalyst(g_payload)
+                        g_res = analyst_engine.evaluate_growth_catalyst(g_payload, forced_model=forced_model_arg)
                         if not g_res:
                             # Mock sample if news fetch is empty
                             g_res = {
@@ -1560,7 +1681,9 @@ def render_management_dashboard(subscriber, token):
                                 "key_catalysts": ["$5B strategic investment", "Next-gen AI computing power agreement", "Expanded market share"],
                                 "risks": ["High initial capex requirements", "Market competition"],
                                 "plain_english_takeaway": f"Major growth driver for {mock_ticker} over the next 12-24 months.",
+                                "ai_model_used": forced_model_arg or "Gemini-Flash (gemma-4-26b-a4b-it)",
                                 "news_articles": [
+
                                     {"title": f"{mock_ticker} Lands Massive $5B AI Computing Partnership", "link": "https://news.google.com", "pubDate": "Tue, 22 Jul 2026 14:00:00 GMT"},
                                     {"title": f"{mock_ticker} Stock Surges on New Multi-Year Revenue Agreement", "link": "https://news.google.com", "pubDate": "Mon, 21 Jul 2026 09:30:00 GMT"},
                                     {"title": f"Why Analysts Are Upgrading {mock_ticker} After Strategic Deal", "link": "https://news.google.com", "pubDate": "Mon, 21 Jul 2026 08:15:00 GMT"},
@@ -1569,17 +1692,19 @@ def render_management_dashboard(subscriber, token):
                     growth_html = notifier.format_growth_catalyst_email(g_res, token)
                     real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], growth_html, f"{mock_ticker} Growth Catalyst")
                     
+                    g_model_tag = g_res.get("ai_model_used", "Groq AI")
                     if real_sent:
-                        st.success(f"✅ Growth Catalyst Alert Sent: {status_msg}")
+                        st.success(f"✅ Growth Catalyst Alert Sent via {g_model_tag}: {status_msg}")
                     else:
-                        st.info(f"ℹ️ {status_msg}")
-                    st.session_state.inspect_html = ("Growth Catalyst Alert", growth_html)
+                        st.info(f"ℹ️ [{g_model_tag}] {status_msg}")
+                    st.session_state.inspect_html = (f"Growth Catalyst Alert ({g_model_tag})", growth_html)
                     st.rerun()
 
             if "inspect_html" in st.session_state:
                 label, h_content = st.session_state.inspect_html
                 st.write(f"**Live Layout Inspector Preview ({label}):**")
                 st.components.v1.html(h_content, height=450, scrolling=True)
+
 
         with st.expander("🗑️ Account Settings & Unsubscribe", expanded=False):
             st.write("Erase all alert preferences and delete your watchlist:")

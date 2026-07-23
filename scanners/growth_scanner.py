@@ -20,17 +20,17 @@ logging.basicConfig(
     ]
 )
 
-# Add local path to import modules
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add parent path to import modular packages
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from local_env import load_env_file
-
+from core.local_env import load_env_file
 load_env_file()
 
-import database
-import growth_engine
-import analyst_engine
-import notifier
+from core import database
+from engines import growth_engine
+from ai import analyst_engine
+from notifications import notifier
+
 
 def run_growth_scan(trigger_type="manual"):
     start_time = time.time()
@@ -106,12 +106,17 @@ def run_growth_scan(trigger_type="manual"):
             cat_type = g_res.get("catalyst_type", "Growth Catalyst")
             logging.info(f"🚀 Whole-Market Growth Catalyst DISCOVERED: {ticker} ({cat_type}) - Score: {score:.1f}/10")
             
+            latest_price = g_res.get("latest_price") or g_payload.get("latest_price")
             g_signal = {
                 "ticker": ticker,
                 "pattern_type": f"Growth_{cat_type}",
                 "day1_date": str(datetime.now())[:10],
-                "day2_date": str(datetime.now())[:10]
+                "day2_date": str(datetime.now())[:10],
+                "day3_open": latest_price,
+                "entry_price": latest_price,
+                "vol_mult": g_res.get("vol_mult")
             }
+
             
             # Dispatch email to all subscribers with wants_growth=True
             for sub in growth_subscribers:

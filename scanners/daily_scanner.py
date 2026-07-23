@@ -19,21 +19,19 @@ logging.basicConfig(
     ]
 )
 
-# Add local path to import modules
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add parent path to import modular packages
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from local_env import load_env_file
-
+from core.local_env import load_env_file
 load_env_file()
 
-import database
-import pattern_engine
-import notifier
-import analyst_engine
-
-import growth_engine
+from core import database
+from engines import pattern_engine, growth_engine
+from ai import analyst_engine
+from notifications import notifier
 
 import time
+
 
 def run_daily_scan(days_to_scan=3, trigger_type="manual"):
     start_time = time.time()
@@ -41,8 +39,13 @@ def run_daily_scan(days_to_scan=3, trigger_type="manual"):
     logging.info(f"Starting Daily Candlestick & Growth Sentinel Scan (Trigger: {trigger_type})")
     logging.info("=========================================")
     
-    # 1. Initialize database
+    # 1. Initialize database & resolve post-trade alert outcomes
     database.init_db()
+    try:
+        database.resolve_pending_alert_outcomes()
+    except Exception as e:
+        logging.error(f"Error resolving alert outcomes: {e}")
+
     
     # 2. Retrieve all subscribers
     subscribers = database.get_all_subscribers()
@@ -126,6 +129,17 @@ def run_daily_scan(days_to_scan=3, trigger_type="manual"):
                     day1_low = signal["day1_low"]
                     day1_high = signal["day1_high"]
                     
+                    if pattern_type == "Hammer":
+                        stop_loss = round(day1_low - 0.01, 2)
+                        profit_target = round(entry_est + 2.0 * (entry_est - stop_loss), 2)
+                    else:
+                        stop_loss = round(day1_high + 0.01, 2)
+                        profit_target = round(entry_est - 2.0 * (stop_loss - entry_est), 2)
+                        
+                    signal["entry_price"] = entry_est
+                    signal["stop_loss"] = stop_loss
+                    signal["profit_target"] = profit_target
+                    
                     invalidation_gap = False
                     if pattern_type == "Hammer" and entry_est <= day1_low:
                         invalidation_gap = True
@@ -135,6 +149,7 @@ def run_daily_scan(days_to_scan=3, trigger_type="manual"):
                     if invalidation_gap:
                         logging.warning(f"❌ Alert aborted: Ticker {ticker} opened past invalidation level.")
                         continue
+
                         
                     ai_analysis = analyst_engine.analyze_signal(signal)
                     if ai_analysis:
@@ -167,13 +182,17 @@ def run_daily_scan(days_to_scan=3, trigger_type="manual"):
                     cat_type = growth_eval.get("catalyst_type", "Growth Catalyst")
                     logging.info(f"🚀 Growth Catalyst MATCHED for {email}: {ticker} {cat_type} (Score: {score:.1f}/10)")
                     
-                    # Create mock signal structure for duplicate prevention tracking
+                    latest_price = growth_eval.get("latest_price")
                     g_signal = {
                         "ticker": ticker,
                         "pattern_type": f"Growth_{cat_type}",
                         "day1_date": str(datetime.now())[:10],
-                        "day2_date": str(datetime.now())[:10]
+                        "day2_date": str(datetime.now())[:10],
+                        "day3_open": latest_price,
+                        "entry_price": latest_price,
+                        "vol_mult": growth_eval.get("vol_mult")
                     }
+
                     if not database.has_alert_been_sent(sub_id, g_signal):
                         g_html = notifier.format_growth_catalyst_email(growth_eval, token)
                         sent_real_email, status_msg = notifier.simulate_send_alert(email, g_html, f"{ticker} Growth Catalyst")

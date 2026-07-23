@@ -23,12 +23,14 @@ def _format_ai_analysis_section(ai_analysis):
     takeaway = html.escape(str(ai_analysis.get("plain_english_takeaway", "")))
     caution_flags = _format_ai_list(ai_analysis.get("caution_flags") or [])
     supporting_context = _format_ai_list(ai_analysis.get("supporting_context") or [])
+    ai_model = html.escape(str(ai_analysis.get("ai_model_used", "Groq AI")))
 
     return f"""
     <!-- AI Analyst Notes -->
     <div style="background-color: #fffaf0; border-left: 4px solid #ed8936; padding: 16px; border-radius: 0 8px 8px 0; margin-bottom: 24px;">
-        <h3 style="margin-top: 0; margin-bottom: 8px; font-size: 15px; font-weight: 700; color: #1a202c;">AI Analyst Notes</h3>
+        <h3 style="margin-top: 0; margin-bottom: 8px; font-size: 15px; font-weight: 700; color: #1a202c;">AI Analyst Notes ({ai_model})</h3>
         <span style="display: inline-block; background-color: #feebc8; color: #7b341e; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 9999px; margin-bottom: 10px;">{status}</span>
+        <span style="display: inline-block; background-color: #edf2f7; color: #4a5568; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 9999px; margin-bottom: 10px; margin-left: 6px;">🤖 {ai_model}</span>
         <p style="margin: 0 0 12px 0; font-size: 13px; line-height: 1.5; color: #2d3748;">{summary}</p>
         <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 700; color: #2d3748;">Caution flags to know:</p>
         <ul style="margin: 0 0 12px 0; padding-left: 20px; font-size: 13px; color: #4a5568; line-height: 1.5;">{caution_flags}</ul>
@@ -37,6 +39,7 @@ def _format_ai_analysis_section(ai_analysis):
         <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #2d3748;"><strong>Plain-English AI takeaway:</strong> {takeaway}</p>
     </div>
     """
+
 
 def get_alert_category_and_emoji(pattern_type, score):
     """
@@ -240,6 +243,7 @@ def format_growth_catalyst_email(growth_res, token, base_url="http://localhost:8
     summary = html.escape(str(growth_res.get("headline_summary", "")))
     takeaway = html.escape(str(growth_res.get("plain_english_takeaway", "")))
     vol_mult = float(growth_res.get("vol_mult") or 1.0)
+    ai_model = html.escape(str(growth_res.get("ai_model_used", "Groq AI")))
     
     key_cats = "".join(f"<li>{html.escape(str(item))}</li>" for item in (growth_res.get("key_catalysts") or []))
     risks = "".join(f"<li>{html.escape(str(item))}</li>" for item in (growth_res.get("risks") or []))
@@ -285,6 +289,9 @@ def format_growth_catalyst_email(growth_res, token, base_url="http://localhost:8
     </div>
     """
 
+    latest_price = growth_res.get("latest_price")
+    price_badge_str = f"Stock Price: <strong style='color: #ffffff;'>${float(latest_price):.2f}</strong> | " if latest_price else ""
+
     manage_url = f"{base_url}/?token={token}"
     unsubscribe_url = f"{base_url}/?token={token}&unsubscribe=true"
 
@@ -297,13 +304,24 @@ def format_growth_catalyst_email(growth_res, token, base_url="http://localhost:8
             🚀 Growth Catalyst Alert
         </span>
         <h1 style="margin: 0; font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: -0.02em;">{ticker} — {cat_type}</h1>
-        <p style="margin: 6px 0 0 0; font-size: 14px; color: #c7d2fe;">Volume Surge: {vol_mult:.2f}x 20-Day Average | Groq AI Score: {score:.1f} / 10</p>
+        <p style="margin: 6px 0 0 0; font-size: 14px; color: #c7d2fe;">{price_badge_str}Volume Surge: {vol_mult:.2f}x 20-Day Average | AI Engine: {ai_model} | Score: {score:.1f} / 10</p>
     </div>
+
     
     <!-- Growth Summary Card -->
     <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
-        <h3 style="margin-top: 0; margin-bottom: 8px; font-size: 16px; font-weight: 700; color: #166534;">Groq AI Fundamental Catalyst Overview</h3>
+        <h3 style="margin-top: 0; margin-bottom: 8px; font-size: 16px; font-weight: 700; color: #166534;">{ai_model} Fundamental Catalyst Overview</h3>
         <p style="margin: 0 0 12px 0; font-size: 14px; line-height: 1.5; color: #14532d; font-weight: 600;">{summary}</p>
+        
+        <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 700; color: #166534;">Key Growth Drivers:</p>
+        <ul style="margin: 0 0 12px 0; padding-left: 20px; font-size: 13px; color: #15803d; line-height: 1.5;">{key_cats}</ul>
+        
+        <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 700; color: #991b1b;">Risks & Considerations:</p>
+        <ul style="margin: 0 0 12px 0; padding-left: 20px; font-size: 13px; color: #b91c1c; line-height: 1.5;">{risks}</ul>
+        
+        <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #166534;"><strong>Plain-English Takeaway:</strong> {takeaway}</p>
+    </div>
+
         
         <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 700; color: #166534;">Key Growth Drivers:</p>
         <ul style="margin: 0 0 12px 0; padding-left: 20px; font-size: 13px; color: #15803d; line-height: 1.5;">{key_cats}</ul>

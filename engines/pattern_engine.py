@@ -73,10 +73,10 @@ def add_indicators(df):
     
     return df
 
-def identify_setup_candle(df, idx):
+def identify_setup_candle(df, idx, ticker=None):
     """
     Checks if the candle at df.iloc[idx] matches the V3 geometric criteria
-    for a Hammer/Hanging Man shape.
+    for a Hammer/Hanging Man shape and applies empirical self-learning calibration.
     Returns:
         is_pattern: bool
         pattern_type: str ('Hammer', 'Hanging Man', or None)
@@ -182,7 +182,23 @@ def identify_setup_candle(df, idx):
             score_trend = 5.0
 
     total_score = score_rsi + score_vol + score_trend
-    # Constrain to 0-100 range
+    
+    # 4. Self-Learning Empirical Outcome Calibration
+    try:
+        from core import database
+        stats = database.get_historical_accuracy_stats(ticker=ticker, pattern_type=pattern_type)
+
+        if stats and stats.get("total_resolved", 0) >= 3 and stats.get("win_rate") is not None:
+            win_rate = stats["win_rate"]
+            if win_rate >= 0.70:
+                calibration_factor = 15.0 * (win_rate - 0.70) / 0.30
+                total_score += calibration_factor
+            elif win_rate <= 0.50:
+                calibration_factor = 20.0 * (0.50 - win_rate) / 0.50
+                total_score -= calibration_factor
+    except Exception:
+        pass
+
     confidence_score = float(max(0.0, min(100.0, total_score)))
     
     return True, pattern_type, confidence_score
@@ -200,16 +216,12 @@ def scan_ticker_for_signals(ticker, days_to_scan=5):
     df = add_indicators(df)
     signals = []
     
-    # Scan back from the end of the dataframe
-    # We need to make sure we leave enough days at the end to check for Day 2 confirmation
-    # If scanning for active signals that have confirmed, we look back from the end.
-    # Specifically, a signal triggered on 'Day 1' is confirmed on 'Day 2' (which could be yesterday or today).
-    # Let's scan the last `days_to_scan` completed candles as Day 1.
-    start_idx = len(df) - days_to_scan - 2 # Leaves at least 2 days at the end for check
+    start_idx = len(df) - days_to_scan - 2
     start_idx = max(200, start_idx)
     
     for idx in range(start_idx, len(df) - 1):
-        is_pattern, pattern_type, score = identify_setup_candle(df, idx)
+        is_pattern, pattern_type, score = identify_setup_candle(df, idx, ticker=ticker)
+
         if is_pattern:
             # Check for Day 2 Confirmation (index: idx + 1)
             # Hammer confirmation: Close_2 > High_1

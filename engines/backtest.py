@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
 import logging
-from pattern_engine import download_stock_data, add_indicators, identify_setup_candle
+from engines.pattern_engine import download_stock_data, add_indicators, identify_setup_candle
+
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 

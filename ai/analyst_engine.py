@@ -52,13 +52,19 @@ def _signal_payload(signal):
 
 
 def _extract_json(text):
+    text = re.sub(r"<thought>.*?</thought>", "", text, flags=re.DOTALL).strip()
     try:
-        return json.loads(text)
+        data = json.loads(text)
     except json.JSONDecodeError:
         match = re.search(r"\{.*\}", text, re.DOTALL)
         if not match:
             raise
-        return json.loads(match.group(0))
+        data = json.loads(match.group(0))
+        
+    if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+        data = data[0]
+    return data
+
 
 
 def _validate_analysis(data):
@@ -72,21 +78,25 @@ def _validate_analysis(data):
 
     for key in ("caution_flags", "supporting_context"):
         items = data.get(key) or []
-        if isinstance(items, str):
+        if isinstance(items, dict):
+            items = list(items.values())
+        elif isinstance(items, str):
             items = [items]
         analysis[key] = [str(item)[:220] for item in items[:4] if str(item).strip()]
+
 
     return analysis
 
 
 # ─── AI Model Fallback Chain ───
 # When a model hits rate limits (429), automatically cascade to the next one.
-# Chain: Groq 70B → Groq 8B (same key, 5x higher limits) → Gemini Flash (free, if key set)
+# Chain: Groq 70B → Groq 8B (same key, 5x higher limits) → Gemma 4 (free tier key) → Gemini Flash
 
-def _build_fallback_chain():
+def _build_fallback_chain(forced_model=None):
     """
     Builds an ordered list of (provider_name, base_url, api_key, model) tuples.
     Only includes providers that have API keys configured.
+    If forced_model is specified, puts that target provider first or filters for it.
     """
     chain = []
     
@@ -100,16 +110,26 @@ def _build_fallback_chain():
     
     gemini_key = os.environ.get("GEMINI_API_KEY")
     if gemini_key:
-        chain.append(("Gemini-Flash", "https://generativelanguage.googleapis.com/v1beta/openai/", gemini_key, "gemini-2.0-flash"))
+        gemini_base = "https://generativelanguage.googleapis.com/v1beta/openai/"
+        chain.append(("Gemma-4", gemini_base, gemini_key, "gemma-4-26b-a4b-it"))
+        chain.append(("Gemini-Flash", gemini_base, gemini_key, "gemma-4-26b-a4b-it"))
+
     
     openai_key = os.environ.get("OPENAI_API_KEY")
     if openai_key:
         chain.append(("OpenAI", None, openai_key, os.environ.get("AI_ANALYST_MODEL") or "gpt-4o-mini"))
     
+    if forced_model:
+        # Match by provider_name prefix e.g. "Groq-70B", "Groq-8B", "Gemma-4", "Gemini-Flash"
+        matched = [item for item in chain if forced_model.lower() in item[0].lower() or forced_model.lower() in item[3].lower()]
+        if matched:
+            others = [item for item in chain if item not in matched]
+            return matched + others
+
     return chain
 
 
-def _call_ai_with_fallback(instructions, prompt, context_label="AI"):
+def _call_ai_with_fallback(instructions, prompt, context_label="AI", forced_model=None):
     """
     Calls the AI model chain with automatic 429 fallback.
     Returns the raw parsed JSON dict, or None if all models fail.
@@ -120,11 +140,13 @@ def _call_ai_with_fallback(instructions, prompt, context_label="AI"):
         logging.warning("OpenAI package is not installed. Skipping AI analysis.")
         return None
 
-    chain = _build_fallback_chain()
+    chain = _build_fallback_chain(forced_model=forced_model)
     if not chain:
         logging.warning("No AI API keys configured. Skipping AI analysis.")
         return None
 
+    sys_instruction = instructions + "\nCRITICAL: Do NOT output thinking steps, reasoning, or XML/thought tags. Return ONLY raw valid JSON."
+    
     for provider_name, base_url, api_key, model in chain:
         try:
             kwargs = {"api_key": api_key}
@@ -135,17 +157,20 @@ def _call_ai_with_fallback(instructions, prompt, context_label="AI"):
             response = client.chat.completions.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": instructions},
+                    {"role": "system", "content": sys_instruction},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.2,
-                max_completion_tokens=700,
+                max_completion_tokens=1000,
                 response_format={"type": "json_object"},
             )
             content = response.choices[0].message.content
             data = _extract_json(content)
+            if isinstance(data, dict):
+                data["ai_model_used"] = f"{provider_name} ({model})"
             logging.info(f"{context_label} evaluation succeeded via {provider_name} ({model})")
             return data
+
             
         except Exception as exc:
             error_str = str(exc)
@@ -153,26 +178,35 @@ def _call_ai_with_fallback(instructions, prompt, context_label="AI"):
             
             if is_rate_limit:
                 logging.warning(f"⚡ {provider_name} ({model}) rate-limited for {context_label}. Falling back to next model...")
-                continue
             else:
-                logging.warning(f"{provider_name} ({model}) failed for {context_label}: {exc}")
-                return None
+                logging.warning(f"⚠️ {provider_name} ({model}) failed for {context_label} ({exc}). Falling back to next model...")
+            continue
     
     logging.warning(f"All AI models exhausted for {context_label}. No fallback available.")
+
     return None
 
 
-def analyze_signal(signal):
+def analyze_signal(signal, forced_model=None):
     """
     Adds an optional AI analyst layer after the deterministic signal is found.
     The math engine remains the source of truth for pattern detection.
-    Uses the automatic fallback chain (Groq 70B → Groq 8B → Gemini Flash).
+    Uses the automatic fallback chain (Groq 70B → Groq 8B → Gemma 4 → Gemini Flash).
     """
     if not is_ai_enabled():
         return None
 
     ticker = signal.get("ticker", "UNKNOWN")
     payload = _signal_payload(signal)
+
+    try:
+        from core import database
+        stats = database.get_historical_accuracy_stats(ticker=ticker, pattern_type=signal.get("pattern_type"))
+
+        if stats and stats.get("total_resolved", 0) > 0:
+            payload["historical_sentinel_accuracy"] = f"{stats['wins']} Wins / {stats['losses']} Losses ({stats['win_rate']:.1%} win rate across {stats['total_resolved']} past resolved alerts)"
+    except Exception:
+        pass
 
     instructions = (
         "You are an assistant inside a candlestick alert app. You do not give financial advice, "
@@ -188,16 +222,20 @@ def analyze_signal(signal):
         f"{json.dumps(payload, indent=2)}"
     )
 
-    data = _call_ai_with_fallback(instructions, prompt, context_label=f"Technical-{ticker}")
+
+    data = _call_ai_with_fallback(instructions, prompt, context_label=f"Technical-{ticker}", forced_model=forced_model)
     if data:
-        return _validate_analysis(data)
+        validated = _validate_analysis(data)
+        if isinstance(data, dict) and "ai_model_used" in data:
+            validated["ai_model_used"] = data["ai_model_used"]
+        return validated
     return None
 
 
-def evaluate_growth_catalyst(growth_payload):
+def evaluate_growth_catalyst(growth_payload, forced_model=None):
     """
     Evaluates news headlines & volume multiplier to rate Growth Potential (1-10).
-    Uses the automatic fallback chain (Groq 70B → Groq 8B → Gemini Flash).
+    Uses the automatic fallback chain (Groq 70B → Groq 8B → Gemma 4 → Gemini Flash).
     """
     if not is_ai_enabled():
         return None
@@ -227,13 +265,14 @@ def evaluate_growth_catalyst(growth_payload):
     Evaluate if this is a high-growth fundamental catalyst (contract, earnings, partnership, milestone) or just minor chatter.
     """
 
-    data = _call_ai_with_fallback(instructions, prompt, context_label=f"Growth-{ticker}")
-    if data:
+    data = _call_ai_with_fallback(instructions, prompt, context_label=f"Growth-{ticker}", forced_model=forced_model)
+    if data and isinstance(data, dict):
         data["growth_score"] = float(data.get("growth_score") or 5.0)
         # Pass through original news items so the email can include article links
         data["news_articles"] = news
         data["ticker"] = ticker
         data["vol_mult"] = vol_mult
+        data["latest_price"] = growth_payload.get("latest_price")
         return data
     return None
 
