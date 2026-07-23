@@ -436,7 +436,7 @@ def record_scan_log(duration_seconds, tickers_scanned, signals_found, alerts_sen
     """
     conn = get_db_connection()
     try:
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now_str = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
         with conn:
             conn.execute(
                 """
@@ -487,7 +487,7 @@ def set_scheduler_active(is_active):
     """
     conn = get_db_connection()
     try:
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S") if is_active else None
+        now_str = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p") if is_active else None
         with conn:
             conn.execute(
                 "UPDATE scheduler_state SET is_active = ?, start_timestamp = CASE WHEN ? = 1 THEN ? ELSE NULL END WHERE id = 1;",

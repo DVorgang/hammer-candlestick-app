@@ -32,6 +32,16 @@ import daily_scanner
 # Background Auto-Scheduler Daemon Thread Setup
 _scheduler_thread = None
 
+def parse_dt(ts_str):
+    if not ts_str:
+        return None
+    for fmt in ("%Y-%m-%d %I:%M:%S %p", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(ts_str, fmt)
+        except Exception:
+            pass
+    return None
+
 def _run_background_scheduler_loop():
     while True:
         try:
@@ -42,12 +52,8 @@ def _run_background_scheduler_loop():
                 if not last_run:
                     should_run = True
                 else:
-                    try:
-                        last_dt = datetime.strptime(last_run, "%Y-%m-%d %H:%M:%S")
-                        # Run twice daily (every 12 hours)
-                        if datetime.now() - last_dt >= timedelta(hours=12):
-                            should_run = True
-                    except Exception:
+                    last_dt = parse_dt(last_run)
+                    if not last_dt or (datetime.now() - last_dt >= timedelta(hours=12)):
                         should_run = True
                 
                 if should_run:
@@ -1257,8 +1263,8 @@ def render_management_dashboard(subscriber, token):
         # Calculate uptime if active
         uptime_str = "Stopped"
         if is_sched_active and start_ts_str:
-            try:
-                start_dt = datetime.strptime(start_ts_str, "%Y-%m-%d %H:%M:%S")
+            start_dt = parse_dt(start_ts_str)
+            if start_dt:
                 delta = datetime.now() - start_dt
                 days = delta.days
                 hours, remainder = divmod(delta.seconds, 3600)
@@ -1269,7 +1275,7 @@ def render_management_dashboard(subscriber, token):
                     uptime_str = f"{hours}h {minutes}m"
                 else:
                     uptime_str = f"{minutes}m"
-            except Exception:
+            else:
                 uptime_str = "Active"
 
         # Action Control Buttons
