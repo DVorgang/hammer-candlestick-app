@@ -224,6 +224,10 @@ def evaluate_growth_catalyst(growth_payload):
         content = response.choices[0].message.content
         data = _extract_json(content)
         data["growth_score"] = float(data.get("growth_score") or 5.0)
+        # Pass through original news items so the email can include article links
+        data["news_articles"] = news
+        data["ticker"] = ticker
+        data["vol_mult"] = vol_mult
         return data
     except Exception as e:
         logging.warning(f"Growth catalyst evaluation failed for {ticker}: {e}")

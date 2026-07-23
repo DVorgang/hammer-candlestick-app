@@ -232,6 +232,7 @@ def format_alert_email(signal, token, base_url="http://localhost:8501"):
 def format_growth_catalyst_email(growth_res, token, base_url="http://localhost:8501"):
     """
     Formats a responsive HTML email alert for high-growth news & volume catalyst setups.
+    Includes clickable news article links so readers can validate the catalyst.
     """
     ticker = html.escape(str(growth_res.get("ticker", "TICKER")))
     score = float(growth_res.get("growth_score") or 8.0)
@@ -242,6 +243,47 @@ def format_growth_catalyst_email(growth_res, token, base_url="http://localhost:8
     
     key_cats = "".join(f"<li>{html.escape(str(item))}</li>" for item in (growth_res.get("key_catalysts") or []))
     risks = "".join(f"<li>{html.escape(str(item))}</li>" for item in (growth_res.get("risks") or []))
+
+    # Build clickable news article links section
+    news_articles = growth_res.get("news_articles") or []
+    news_section_html = ""
+    if news_articles:
+        article_rows = ""
+        for idx, article in enumerate(news_articles[:5]):
+            title = html.escape(str(article.get("title", "Untitled Article")))
+            link = str(article.get("link", ""))
+            pub_date = str(article.get("pubDate", ""))
+            # Format date nicely if available
+            date_display = ""
+            if pub_date:
+                try:
+                    from email.utils import parsedate_to_datetime
+                    dt = parsedate_to_datetime(pub_date)
+                    date_display = dt.strftime("%b %d, %Y")
+                except Exception:
+                    date_display = pub_date[:16] if len(pub_date) > 16 else pub_date
+            
+            article_rows += f"""
+            <tr>
+                <td style="padding: 10px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top;">
+                    <a href="{link}" style="color: #1e40af; font-size: 13px; font-weight: 600; text-decoration: none; line-height: 1.4;" target="_blank">{title} →</a>
+                    <div style="font-size: 11px; color: #94a3b8; margin-top: 3px;">{date_display}</div>
+                </td>
+            </tr>
+            """
+        
+        news_section_html = f"""
+    <!-- News Articles Section -->
+    <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0; margin-bottom: 24px; overflow: hidden;">
+        <div style="background: linear-gradient(135deg, #1e3a5f 0%, #1e40af 100%); padding: 14px 20px;">
+            <h3 style="margin: 0; font-size: 15px; font-weight: 700; color: #ffffff;">📰 In the News — Read the Catalysts</h3>
+            <p style="margin: 4px 0 0 0; font-size: 12px; color: #93c5fd;">Click any headline below to read the full story and validate this signal</p>
+        </div>
+        <table style="width: 100%; border-collapse: collapse;">
+            {article_rows}
+        </table>
+    </div>
+    """
 
     manage_url = f"{base_url}/?token={token}"
     unsubscribe_url = f"{base_url}/?token={token}&unsubscribe=true"
@@ -272,6 +314,8 @@ def format_growth_catalyst_email(growth_res, token, base_url="http://localhost:8
         <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #166534;"><strong>Plain-English Takeaway:</strong> {takeaway}</p>
     </div>
     
+    {news_section_html}
+    
     <!-- Footer -->
     <div style="border-top: 1px solid #edf2f7; padding-top: 16px; text-align: center; font-size: 12px; color: #a0aec0;">
         <p style="margin-bottom: 8px;">You received this Growth Catalyst alert because you subscribed to <strong>{ticker}</strong> monitoring.</p>
@@ -283,7 +327,6 @@ def format_growth_catalyst_email(growth_res, token, base_url="http://localhost:8
     </div>
 </div>
 """
-    return html_content
 
 def send_real_email(to_email, subject, html_content):
     """

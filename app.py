@@ -1557,7 +1557,12 @@ def render_management_dashboard(subscriber, token):
                                 "headline_summary": f"{mock_ticker} announces strategic $5 Billion AI partnership & multi-year agreement.",
                                 "key_catalysts": ["$5B strategic investment", "Next-gen AI computing power agreement", "Expanded market share"],
                                 "risks": ["High initial capex requirements", "Market competition"],
-                                "plain_english_takeaway": f"Major growth driver for {mock_ticker} over the next 12-24 months."
+                                "plain_english_takeaway": f"Major growth driver for {mock_ticker} over the next 12-24 months.",
+                                "news_articles": [
+                                    {"title": f"{mock_ticker} Lands Massive $5B AI Computing Partnership", "link": "https://news.google.com", "pubDate": "Tue, 22 Jul 2026 14:00:00 GMT"},
+                                    {"title": f"{mock_ticker} Stock Surges on New Multi-Year Revenue Agreement", "link": "https://news.google.com", "pubDate": "Mon, 21 Jul 2026 09:30:00 GMT"},
+                                    {"title": f"Why Analysts Are Upgrading {mock_ticker} After Strategic Deal", "link": "https://news.google.com", "pubDate": "Mon, 21 Jul 2026 08:15:00 GMT"},
+                                ]
                             }
                     growth_html = notifier.format_growth_catalyst_email(g_res, token)
                     real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], growth_html, f"{mock_ticker} Growth Catalyst")
