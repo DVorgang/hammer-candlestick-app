@@ -1317,8 +1317,7 @@ def render_management_dashboard(subscriber, token):
         g_last_dur = f"{growth_log['duration_seconds']:.2f}s" if growth_log else "n/a"
 
         # Section 1 Header
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown('<div class="card-title">⚡ Scanner Control Hub & Auto-Schedulers</div>', unsafe_allow_html=True)
+        st.markdown('<h3 style="color: #f8fafc; font-weight: 800; margin-top: 0; margin-bottom: 8px;">⚡ Scanner Control Hub & Auto-Schedulers</h3>', unsafe_allow_html=True)
         st.write("Manage your **Candlestick Technical Scanner** and **AI Growth Catalyst Scanner** below. Choose to run scans on-demand or enable automatic twice-daily background scheduling:")
 
         col_tech, col_growth = st.columns(2)
@@ -1405,8 +1404,6 @@ def render_management_dashboard(subscriber, token):
                 <div style="color: #cbd5e1; font-size: 0.85rem; margin-top: 6px;">Last Executed: <strong style="color: #f8fafc;">{g_last_time}</strong> ({g_last_dur})</div>
             </div>
             """, unsafe_allow_html=True)
-
-        st.markdown('</div>', unsafe_allow_html=True)
 
         def on_pref_change():
             w_buys = st.session_state.get("wants_buys_check", True)
