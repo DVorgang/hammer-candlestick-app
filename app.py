@@ -867,9 +867,6 @@ def render_management_dashboard(subscriber, token):
         render_stock_detail_page(st.session_state.selected_ticker_detail, subscriber, token)
         return
 
-    st.markdown(f'<div class="main-title">🔧 Sentinel Control Panel</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="subtitle">Managing: <strong>{subscriber["email"]}</strong></div>', unsafe_allow_html=True)
-    
     # Session state update functions
     def on_pref_change():
         database.update_subscriber_preferences(
