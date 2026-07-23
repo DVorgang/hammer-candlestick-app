@@ -1366,17 +1366,17 @@ def render_management_dashboard(subscriber, token):
         with col_growth:
             st.markdown("""
             <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px; min-height: 130px; box-sizing: border-box;">
-                <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.1rem;">🚀 AI Growth & Contract Catalyst Engine</h4>
+                <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.1rem;">🚀 Whole-Market AI Growth & Hidden Gem Catalyst Engine</h4>
                 <p style="color: #94a3b8; font-size: 0.85rem; line-height: 1.4; margin: 0;">
-                    Scans real-time news headlines & volume surges (&ge; 2.0x) using <strong style="color: #60a5fa;">Groq Llama 3.3-70B</strong> 
-                    to detect contract wins, earnings beats, and FDA approvals (&ge; 7.0/10).
+                    Scans the <strong style="color: #38df88;">entire US stock market</strong> (unusual volume &ge; 2.0x, small-cap gainers, tech growth) 
+                    using <strong style="color: #60a5fa;">Groq Llama 3.3-70B</strong> to discover unexpected contract wins & breakout catalysts (&ge; 7.0/10).
                 </p>
             </div>
             """, unsafe_allow_html=True)
 
             st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-bottom: 6px;'>1. Run On-Demand:</p>", unsafe_allow_html=True)
-            if st.button("🚀 Run Instant Growth Catalyst Scan", type="primary", use_container_width=True, key="btn_growth_manual"):
-                with st.spinner("Scanning volume surges & news headlines with Groq Llama 3.3-70B..."):
+            if st.button("🚀 Run Instant Market Growth Scan", type="primary", use_container_width=True, key="btn_growth_manual"):
+                with st.spinner("Scanning whole-market volume surges & news catalysts with Groq Llama 3.3-70B..."):
                     start_t = time.time()
                     growth_scanner.run_growth_scan(trigger_type="manual_ui")
                     dur = time.time() - start_t

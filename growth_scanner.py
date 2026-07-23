@@ -35,7 +35,7 @@ import notifier
 def run_growth_scan(trigger_type="manual"):
     start_time = time.time()
     logging.info("=========================================")
-    logging.info(f"Starting Standalone AI Growth & Contract Catalyst Scan (Trigger: {trigger_type})")
+    logging.info(f"Starting Whole-Market AI Growth & Hidden Gem Catalyst Scan (Trigger: {trigger_type})")
     logging.info("=========================================")
     
     database.init_db()
@@ -44,72 +44,71 @@ def run_growth_scan(trigger_type="manual"):
         logging.info("No active subscribers found in the database. Exiting.")
         return
 
-    logging.info(f"Loaded {len(subscribers)} subscribers for Growth Catalyst scan.")
+    # Filter subscribers who want growth alerts
+    growth_subscribers = [s for s in subscribers if bool(s.get("wants_growth", 1))]
+    if not growth_subscribers:
+        logging.info("No subscribers have Growth Catalyst alerts enabled. Exiting.")
+        return
+
+    logging.info(f"Loaded {len(growth_subscribers)} growth-enabled subscribers. Assembling market-wide candidate list...")
+    
+    # 1. Fetch Whole-Market Candidates (Most Actives, Small-Cap Gainers, Aggressive Small Caps, Tech Growth + Broad Universe)
+    market_tickers = growth_engine.get_market_growth_candidates(max_candidates=100)
     
     growth_cache = {}
     total_signals_found = 0
     total_alerts_sent = 0
     
-    for sub in subscribers:
-        email = sub["email"]
-        token = sub["management_token"]
-        sub_id = sub["id"]
-        
-        wants_growth = bool(sub.get("wants_growth", 1))
-        if not wants_growth:
-            logging.info(f"Subscriber {email} has opted out of Growth Catalyst alerts. Skipping.")
-            continue
+    logging.info(f"Scanning Whole-Market Universe across {len(market_tickers)} active tickers...")
+    
+    for ticker in market_tickers:
+        try:
+            g_payload = growth_engine.scan_ticker_for_growth_catalyst(ticker)
+            if g_payload.get("should_evaluate_ai"):
+                g_res = analyst_engine.evaluate_growth_catalyst(g_payload)
+            else:
+                g_res = None
+            growth_cache[ticker] = g_res
+        except Exception as e:
+            logging.error(f"Error evaluating market growth catalyst for {ticker}: {e}")
+            growth_cache[ticker] = None
 
-        watchlist = database.get_watchlist(sub_id)
-        if not watchlist:
-            logging.info(f"Subscriber {email} has an empty watchlist. Skipping.")
-            continue
+        growth_eval = growth_cache[ticker]
+        if growth_eval and float(growth_eval.get("growth_score") or 0.0) >= 7.0:
+            total_signals_found += 1
+            score = float(growth_eval.get("growth_score"))
+            cat_type = growth_eval.get("catalyst_type", "Growth Catalyst")
+            logging.info(f"🚀 Whole-Market Growth Catalyst DISCOVERED: {ticker} ({cat_type}) - Score: {score:.1f}/10")
             
-        logging.info(f"Scanning Growth Catalysts for {email} (Watchlist: {watchlist})...")
-        
-        for ticker in watchlist:
-            if ticker not in growth_cache:
-                try:
-                    g_payload = growth_engine.scan_ticker_for_growth_catalyst(ticker)
-                    if g_payload.get("should_evaluate_ai"):
-                        g_res = analyst_engine.evaluate_growth_catalyst(g_payload)
-                    else:
-                        g_res = None
-                    growth_cache[ticker] = g_res
-                except Exception as e:
-                    logging.error(f"Error evaluating growth catalyst for {ticker}: {e}")
-                    growth_cache[ticker] = None
-
-            growth_eval = growth_cache[ticker]
-            if growth_eval and float(growth_eval.get("growth_score") or 0.0) >= 7.0:
-                total_signals_found += 1
-                score = float(growth_eval.get("growth_score"))
-                cat_type = growth_eval.get("catalyst_type", "Growth Catalyst")
-                logging.info(f"🚀 Growth Catalyst MATCHED for {email}: {ticker} {cat_type} (Score: {score:.1f}/10)")
-                
-                g_signal = {
-                    "ticker": ticker,
-                    "pattern_type": f"Growth_{cat_type}",
-                    "day1_date": str(datetime.now())[:10],
-                    "day2_date": str(datetime.now())[:10]
-                }
+            g_signal = {
+                "ticker": ticker,
+                "pattern_type": f"Growth_{cat_type}",
+                "day1_date": str(datetime.now())[:10],
+                "day2_date": str(datetime.now())[:10]
+            }
+            
+            # Dispatch email to all subscribers with wants_growth=True
+            for sub in growth_subscribers:
+                email = sub["email"]
+                token = sub["management_token"]
+                sub_id = sub["id"]
                 
                 if not database.has_alert_been_sent(sub_id, g_signal):
                     g_html = notifier.format_growth_catalyst_email(growth_eval, token)
-                    sent_real_email, status_msg = notifier.simulate_send_alert(email, g_html, f"{ticker} Growth Catalyst")
-                    logging.info(f"Growth email delivery status for {email} / {ticker}: {status_msg}")
+                    sent_real_email, status_msg = notifier.simulate_send_alert(email, g_html, f"Market Gem: {ticker} Growth Catalyst")
+                    logging.info(f"Market Growth email status for {email} / {ticker}: {status_msg}")
                     if sent_real_email:
                         database.record_sent_alert(sub_id, g_signal)
                         total_alerts_sent += 1
                 else:
-                    logging.info(f"Skipping duplicate growth alert for {email}: {ticker} {cat_type}.")
+                    logging.info(f"Skipping duplicate market growth alert for {email}: {ticker}.")
 
     duration = time.time() - start_time
-    tickers_count = len(growth_cache)
+    tickers_count = len(market_tickers)
     database.record_scan_log(duration, tickers_count, total_signals_found, total_alerts_sent, trigger_type=f"growth_{trigger_type}")
     
     logging.info("=========================================")
-    logging.info(f"Growth Scan completed successfully in {duration:.2f}s across {tickers_count} tickers.")
+    logging.info(f"Whole-Market Growth Scan completed in {duration:.2f}s across {tickers_count} tickers. Discovered {total_signals_found} high-growth setup(s).")
     logging.info("=========================================")
 
 if __name__ == "__main__":

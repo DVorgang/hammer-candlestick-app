@@ -59,6 +59,51 @@ def get_volume_metrics(ticker):
         logging.error(f"Error fetching volume metrics for {ticker}: {e}")
         return {"vol_mult": 1.0, "latest_vol": 0, "vol_20ma": 0}
 
+def get_market_growth_candidates(max_candidates=100):
+    """
+    Scans the entire US market for active breakout candidates using Yahoo Finance real-time 
+    screeners (most_actives, day_gainers, small_cap_gainers, aggressive_small_caps, growth_technology_stocks)
+    plus a broad market ticker universe.
+    Returns a clean, deduplicated list of uppercase ticker symbols.
+    """
+    candidates = set()
+    
+    # 1. Query Yahoo Finance Real-time Screeners for active movers & small caps
+    screener_keys = [
+        "most_actives", 
+        "day_gainers", 
+        "small_cap_gainers", 
+        "aggressive_small_caps", 
+        "growth_technology_stocks"
+    ]
+    
+    for key in screener_keys:
+        try:
+            res = yf.screen(key)
+            if res and "quotes" in res:
+                for q in res["quotes"]:
+                    sym = q.get("symbol", "").strip().upper()
+                    # Filter out indices, test symbols, and non-alphanumeric tickers
+                    if sym and "^" not in sym and "." not in sym and len(sym) <= 5:
+                        candidates.add(sym)
+        except Exception as e:
+            logging.warning(f"Error querying screener {key}: {e}")
+
+    # 2. Add Broad Market Core Tickers (S&P 500, Nasdaq-100 & High-Beta Small Caps)
+    broad_universe = [
+        "AMD", "NVDA", "PLTR", "SOFI", "SMCI", "RKLB", "RDW", "MNTS", "INGN", "LEDS", 
+        "PINS", "WBD", "SIRI", "PATH", "OPEN", "ONDS", "AAL", "NU", "NOK", "TSLA", 
+        "IONQ", "RGTI", "QUBT", "BBAI", "JOBY", "ACHR", "ASTS", "LUNR", "MARA", "RIOT",
+        "CLSK", "BITF", "SOUN", "BZX", "BTAI", "KPTI", "CRIS", "VKTX", "ALT", "NVAX",
+        "MRNA", "BNTX", "CELH", "SYM", "APP", "CAVA", "DUOL", "ELF", "POWW", "AMTX"
+    ]
+    for sym in broad_universe:
+        candidates.add(sym)
+
+    candidate_list = list(candidates)
+    logging.info(f"Market Growth Screener assembled {len(candidate_list)} market-wide breakout candidates.")
+    return candidate_list[:max_candidates]
+
 CATALYST_KEYWORDS = [
     "contract", "deal", "partnership", "acquire", "acquisition", "earnings",
     "revenue", "profit", "fda", "approval", "patent", "launch", "billion", "million",
@@ -92,3 +137,4 @@ def scan_ticker_for_growth_catalyst(ticker, min_vol_mult=2.0):
         "should_evaluate_ai": has_vol_surge or has_keyword_news,
         "news": news_items
     }
+
