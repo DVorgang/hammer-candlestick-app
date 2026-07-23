@@ -11,6 +11,7 @@ import analyst_engine
 import pandas as pd
 import yfinance as yf
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -422,8 +423,15 @@ def render_plotly_stock_chart(ticker, timeframe, chart_style):
     
     date_col = 'Datetime' if 'Datetime' in data.columns else 'Date'
     
-    fig = go.Figure()
+    # 2-Row Subplot: Price (75%) + Volume (25%)
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.03,
+        row_heights=[0.75, 0.25]
+    )
     
+    # 1. Price Panel (Row 1)
     if chart_style == "📈 Gradient Area":
         fig.add_trace(go.Scatter(
             x=data[date_col],
@@ -432,9 +440,9 @@ def render_plotly_stock_chart(ticker, timeframe, chart_style):
             line=dict(color=line_color, width=2),
             fill='tozeroy',
             fillcolor=fill_color,
-            name='Close Price',
+            name='Price',
             hovertemplate='<b>%{x}</b><br>Price: <b>$%{y:.2f}</b><extra></extra>'
-        ))
+        ), row=1, col=1)
     else:
         fig.add_trace(go.Candlestick(
             x=data[date_col],
@@ -445,7 +453,7 @@ def render_plotly_stock_chart(ticker, timeframe, chart_style):
             increasing_line_color='#10b981',
             decreasing_line_color='#ef4444',
             name='OHLC'
-        ))
+        ), row=1, col=1)
         
     # Baseline Reference Line (Period Start Price)
     fig.add_shape(
@@ -454,7 +462,8 @@ def render_plotly_stock_chart(ticker, timeframe, chart_style):
         y0=start_price,
         x1=data[date_col].iloc[-1],
         y1=start_price,
-        line=dict(color="#64748b", width=1, dash="dash")
+        line=dict(color="#64748b", width=1, dash="dash"),
+        row=1, col=1
     )
     
     # Current Price Tag Badge on Right Y-Axis
@@ -466,9 +475,29 @@ def render_plotly_stock_chart(ticker, timeframe, chart_style):
         xanchor="left",
         yanchor="middle",
         bgcolor=line_color,
-        font=dict(color="#ffffff", size=12, family="sans-serif"),
-        borderpad=4
+        font=dict(color="#ffffff", size=11, family="sans-serif"),
+        borderpad=3,
+        row=1, col=1
     )
+    
+    # 2. Volume Panel (Row 2)
+    vol_colors = []
+    for i in range(len(data)):
+        if i == 0:
+            vol_colors.append("rgba(16, 185, 129, 0.5)")
+        else:
+            if data['Close'].iloc[i] >= data['Close'].iloc[i-1]:
+                vol_colors.append("rgba(16, 185, 129, 0.5)") # Green bar
+            else:
+                vol_colors.append("rgba(239, 68, 68, 0.5)")  # Red bar
+                
+    fig.add_trace(go.Bar(
+        x=data[date_col],
+        y=data['Volume'],
+        marker_color=vol_colors,
+        name='Volume',
+        hovertemplate='Volume: <b>%{y:,.0f}</b><extra></extra>'
+    ), row=2, col=1)
     
     sign_str = "+" if period_change >= 0 else ""
     return_badge = f"{sign_str}{period_pct:.2f}% ({timeframe})"
@@ -478,23 +507,14 @@ def render_plotly_stock_chart(ticker, timeframe, chart_style):
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         margin=dict(l=10, r=60, t=30, b=10),
-        height=400,
-        xaxis=dict(
-            showgrid=True,
-            gridcolor="#1e293b",
-            showline=False,
-            zeroline=False
-        ),
-        yaxis=dict(
-            showgrid=True,
-            gridcolor="#1e293b",
-            showline=False,
-            zeroline=False,
-            side="right"
-        ),
+        height=440,
+        xaxis=dict(showgrid=False, rangeslider=dict(visible=False)),
+        xaxis2=dict(showgrid=True, gridcolor="#1e293b"),
+        yaxis=dict(showgrid=True, gridcolor="#1e293b", side="right"),
+        yaxis2=dict(showgrid=False, side="right"),
         showlegend=False,
         title=dict(
-            text=f"<span style='color:{line_color}; font-size:16px; font-weight:bold;'>{return_badge}</span>",
+            text=f"<span style='color:{line_color}; font-size:15px; font-weight:bold;'>{return_badge}</span>",
             x=0.98,
             xanchor="right",
             y=0.98
