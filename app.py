@@ -46,18 +46,35 @@ def _run_background_scheduler_loop():
     while True:
         try:
             state = database.get_scheduler_state()
-            if state and state.get("is_active"):
-                last_run = state.get("last_run_timestamp")
-                should_run = False
-                if not last_run:
-                    should_run = True
-                else:
-                    last_dt = parse_dt(last_run)
-                    if not last_dt or (datetime.now() - last_dt >= timedelta(hours=12)):
+            if state:
+                # 1. Candlestick Technical Auto-Scheduler
+                if state.get("is_active"):
+                    last_run = state.get("last_run_timestamp")
+                    should_run = False
+                    if not last_run:
                         should_run = True
-                
-                if should_run:
-                    daily_scanner.run_daily_scan(days_to_scan=3, trigger_type="scheduled")
+                    else:
+                        last_dt = parse_dt(last_run)
+                        if not last_dt or (datetime.now() - last_dt >= timedelta(hours=12)):
+                            should_run = True
+                    
+                    if should_run:
+                        daily_scanner.run_daily_scan(days_to_scan=3, trigger_type="scheduled")
+
+                # 2. AI Growth Catalyst Auto-Scheduler
+                if state.get("growth_is_active"):
+                    g_last_run = state.get("growth_last_run_timestamp")
+                    g_should_run = False
+                    if not g_last_run:
+                        g_should_run = True
+                    else:
+                        g_last_dt = parse_dt(g_last_run)
+                        if not g_last_dt or (datetime.now() - g_last_dt >= timedelta(hours=12)):
+                            g_should_run = True
+
+                    if g_should_run:
+                        growth_scanner.run_growth_scan(trigger_type="scheduled")
+
         except Exception as e:
             logging.error(f"Error in background scheduler loop: {e}")
         time.sleep(60)
@@ -1257,10 +1274,11 @@ def render_management_dashboard(subscriber, token):
         st.markdown('<div class="card-title">⚡ Automated Background Scanner & Scheduler Control</div>', unsafe_allow_html=True)
         
         sched_state = database.get_scheduler_state()
+        
+        # 1. Technical Scheduler State
         is_sched_active = bool(sched_state.get("is_active"))
         start_ts_str = sched_state.get("start_timestamp")
         
-        # Calculate uptime if active
         uptime_str = "Stopped"
         if is_sched_active and start_ts_str:
             start_dt = parse_dt(start_ts_str)
@@ -1269,19 +1287,31 @@ def render_management_dashboard(subscriber, token):
                 days = delta.days
                 hours, remainder = divmod(delta.seconds, 3600)
                 minutes, _ = divmod(remainder, 60)
-                if days > 0:
-                    uptime_str = f"{days}d {hours}h {minutes}m"
-                elif hours > 0:
-                    uptime_str = f"{hours}h {minutes}m"
-                else:
-                    uptime_str = f"{minutes}m"
+                uptime_str = f"{days}d {hours}h {minutes}m" if days > 0 else (f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m")
             else:
                 uptime_str = "Active"
 
+        # 2. Growth Scheduler State
+        is_growth_active = bool(sched_state.get("growth_is_active"))
+        g_start_ts_str = sched_state.get("growth_start_timestamp")
+        
+        g_uptime_str = "Stopped"
+        if is_growth_active and g_start_ts_str:
+            g_start_dt = parse_dt(g_start_ts_str)
+            if g_start_dt:
+                delta = datetime.now() - g_start_dt
+                days = delta.days
+                hours, remainder = divmod(delta.seconds, 3600)
+                minutes, _ = divmod(remainder, 60)
+                g_uptime_str = f"{days}d {hours}h {minutes}m" if days > 0 else (f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m")
+            else:
+                g_uptime_str = "Active"
+
         # Action Control Buttons
-        sc1, sc2, sc3 = st.columns([1, 1, 1])
+        st.write("#### 🕹️ On-Demand Manual Scans")
+        sc1, sc2 = st.columns([1, 1])
         with sc1:
-            if st.button("📊 Run Candlestick Technical Scan", type="primary", use_container_width=True):
+            if st.button("📊 Run Instant Technical Scan", type="primary", use_container_width=True):
                 with st.spinner("Scanning watchlist for Hammer & Hanging Man pattern setups..."):
                     start_t = time.time()
                     daily_scanner.run_daily_scan(days_to_scan=3, trigger_type="manual")
@@ -1290,7 +1320,7 @@ def render_management_dashboard(subscriber, token):
                     st.rerun()
 
         with sc2:
-            if st.button("🚀 Run AI Growth Catalyst Scan", type="primary", use_container_width=True):
+            if st.button("🚀 Run Instant Growth Catalyst Scan", type="primary", use_container_width=True):
                 with st.spinner("Scanning volume surges & news headlines with Groq Llama 3.3-70B..."):
                     start_t = time.time()
                     growth_scanner.run_growth_scan(trigger_type="manual_ui")
@@ -1298,46 +1328,63 @@ def render_management_dashboard(subscriber, token):
                     st.session_state.pending_toast = f"Growth catalyst scan complete! Took {dur:.2f}s."
                     st.rerun()
 
-        with sc3:
-            toggle_label = "🛑 Stop Auto-Scheduler" if is_sched_active else "⚡ Start Auto-Scheduler (Twice Daily)"
+        st.markdown('---')
+        st.write("#### ⚡ Background Auto-Schedulers (Twice Daily Execution)")
+        
+        ac1, ac2 = st.columns(2)
+        with ac1:
+            toggle_label = "🛑 Stop Technical Auto-Scheduler" if is_sched_active else "⚡ Start Technical Auto-Scheduler"
             btn_type = "secondary" if is_sched_active else "primary"
             if st.button(toggle_label, type=btn_type, use_container_width=True):
                 new_state = not is_sched_active
                 database.set_scheduler_active(new_state)
                 status_txt = "started" if new_state else "stopped"
-                st.session_state.pending_toast = f"Auto-Scheduler has been {status_txt}."
+                st.session_state.pending_toast = f"Technical Auto-Scheduler has been {status_txt}."
+                st.rerun()
+
+        with ac2:
+            g_toggle_label = "🛑 Stop Growth Auto-Scheduler" if is_growth_active else "🚀 Start Growth Auto-Scheduler"
+            g_btn_type = "secondary" if is_growth_active else "primary"
+            if st.button(g_toggle_label, type=g_btn_type, use_container_width=True):
+                g_new_state = not is_growth_active
+                database.set_growth_scheduler_active(g_new_state)
+                g_status_txt = "started" if g_new_state else "stopped"
+                st.session_state.pending_toast = f"Growth Auto-Scheduler has been {g_status_txt}."
                 st.rerun()
 
         st.markdown('---')
 
-        # Live Metrics Counter Display
-        last_log = database.get_last_scan_log()
-        last_run_time = last_log["timestamp"] if last_log else "Never"
-        last_duration = f"{last_log['duration_seconds']:.2f}s" if last_log else "n/a"
-        last_tickers = last_log["tickers_scanned"] if last_log else 0
+        # Live Metrics Counter Displays
+        tech_log = database.get_last_scan_log(trigger_prefix="manual") or database.get_last_scan_log(trigger_prefix="scheduled")
+        t_last_time = tech_log["timestamp"] if tech_log else "Never"
+        t_last_dur = f"{tech_log['duration_seconds']:.2f}s" if tech_log else "n/a"
+        t_tickers = tech_log["tickers_scanned"] if tech_log else 0
 
-        mc1, mc2, mc3 = st.columns(3)
+        growth_log = database.get_last_scan_log(trigger_prefix="growth")
+        g_last_time = growth_log["timestamp"] if growth_log else "Never"
+        g_last_dur = f"{growth_log['duration_seconds']:.2f}s" if growth_log else "n/a"
+        g_tickers = growth_log["tickers_scanned"] if growth_log else 0
+
+        mc1, mc2 = st.columns(2)
         with mc1:
-            status_color = "#38df88" if is_sched_active else "#f87171"
-            status_label = f"🟢 Active ({uptime_str})" if is_sched_active else "🔴 Stopped"
+            t_status_color = "#38df88" if is_sched_active else "#f87171"
+            t_status_label = f"🟢 Active ({uptime_str})" if is_sched_active else "🔴 Stopped"
             st.markdown(f"""
-            <div style="background: #0f172a; padding: 12px 16px; border-radius: 8px; border: 1px solid #334155;">
-                <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">AUTO-SCHEDULER UPTIME</span>
-                <div style="color: {status_color}; font-size: 1.1rem; font-weight: 800; margin-top: 4px;">{status_label}</div>
+            <div style="background: #0f172a; padding: 14px 18px; border-radius: 8px; border: 1px solid #334155;">
+                <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">📊 TECHNICAL SCANNER AUTO-SCHEDULER</span>
+                <div style="color: {t_status_color}; font-size: 1.1rem; font-weight: 800; margin-top: 4px;">{t_status_label}</div>
+                <div style="color: #cbd5e1; font-size: 0.85rem; margin-top: 6px;">Last Scan: <strong style="color: #f8fafc;">{t_last_time}</strong> ({t_last_dur})</div>
             </div>
             """, unsafe_allow_html=True)
+            
         with mc2:
+            g_status_color = "#38df88" if is_growth_active else "#f87171"
+            g_status_label = f"🟢 Active ({g_uptime_str})" if is_growth_active else "🔴 Stopped"
             st.markdown(f"""
-            <div style="background: #0f172a; padding: 12px 16px; border-radius: 8px; border: 1px solid #334155;">
-                <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">LAST SCAN TIMESTAMP</span>
-                <div style="color: #f8fafc; font-size: 1.1rem; font-weight: 800; margin-top: 4px;">{last_run_time}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with mc3:
-            st.markdown(f"""
-            <div style="background: #0f172a; padding: 12px 16px; border-radius: 8px; border: 1px solid #334155;">
-                <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">LAST RUN DURATION</span>
-                <div style="color: #38bdf8; font-size: 1.1rem; font-weight: 800; margin-top: 4px;">{last_duration} ({last_tickers} Tickers)</div>
+            <div style="background: #0f172a; padding: 14px 18px; border-radius: 8px; border: 1px solid #334155;">
+                <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">🚀 GROWTH CATALYST AUTO-SCHEDULER</span>
+                <div style="color: {g_status_color}; font-size: 1.1rem; font-weight: 800; margin-top: 4px;">{g_status_label}</div>
+                <div style="color: #cbd5e1; font-size: 0.85rem; margin-top: 6px;">Last Scan: <strong style="color: #f8fafc;">{g_last_time}</strong> ({g_last_dur})</div>
             </div>
             """, unsafe_allow_html=True)
 

@@ -95,7 +95,7 @@ def init_db():
             # Ensure default row 1 exists in scheduler_state
             conn.execute("INSERT OR IGNORE INTO scheduler_state (id, is_active, start_timestamp) VALUES (1, 0, NULL);")
             
-            # Check if columns otp_code, otp_expiry, and wants_growth exist, if not add them
+            # Check columns in subscribers and scheduler_state
             cursor = conn.execute("PRAGMA table_info(subscribers);")
             columns = [row["name"] for row in cursor.fetchall()]
             if "otp_code" not in columns:
@@ -104,6 +104,15 @@ def init_db():
                 conn.execute("ALTER TABLE subscribers ADD COLUMN otp_expiry TEXT;")
             if "wants_growth" not in columns:
                 conn.execute("ALTER TABLE subscribers ADD COLUMN wants_growth INTEGER DEFAULT 1;")
+                
+            cursor_s = conn.execute("PRAGMA table_info(scheduler_state);")
+            s_columns = [row["name"] for row in cursor_s.fetchall()]
+            if "growth_is_active" not in s_columns:
+                conn.execute("ALTER TABLE scheduler_state ADD COLUMN growth_is_active INTEGER DEFAULT 0;")
+            if "growth_start_timestamp" not in s_columns:
+                conn.execute("ALTER TABLE scheduler_state ADD COLUMN growth_start_timestamp TEXT;")
+            if "growth_last_run_timestamp" not in s_columns:
+                conn.execute("ALTER TABLE scheduler_state ADD COLUMN growth_last_run_timestamp TEXT;")
                 
         logging.info("Database initialized successfully.")
     except sqlite3.Error as e:
@@ -447,7 +456,10 @@ def record_scan_log(duration_seconds, tickers_scanned, signals_found, alerts_sen
                 """,
                 (now_str, round(duration_seconds, 2), tickers_scanned, signals_found, alerts_sent, trigger_type)
             )
-            conn.execute("UPDATE scheduler_state SET last_run_timestamp = ? WHERE id = 1;", (now_str,))
+            if "growth" in str(trigger_type).lower():
+                conn.execute("UPDATE scheduler_state SET growth_last_run_timestamp = ? WHERE id = 1;", (now_str,))
+            else:
+                conn.execute("UPDATE scheduler_state SET last_run_timestamp = ? WHERE id = 1;", (now_str,))
         return True
     except sqlite3.Error as e:
         logging.error(f"Database error recording scan log: {e}")
@@ -455,13 +467,16 @@ def record_scan_log(duration_seconds, tickers_scanned, signals_found, alerts_sen
     finally:
         conn.close()
 
-def get_last_scan_log():
+def get_last_scan_log(trigger_prefix=None):
     """
-    Returns the most recent scan log record.
+    Returns the most recent scan log record (optionally filtered by trigger_type).
     """
     conn = get_db_connection()
     try:
-        row = conn.execute("SELECT * FROM scanner_logs ORDER BY id DESC LIMIT 1;").fetchone()
+        if trigger_prefix:
+            row = conn.execute("SELECT * FROM scanner_logs WHERE trigger_type LIKE ? ORDER BY id DESC LIMIT 1;", (f"%{trigger_prefix}%",)).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM scanner_logs ORDER BY id DESC LIMIT 1;").fetchone()
         return dict(row) if row else None
     except sqlite3.Error as e:
         logging.error(f"Database error getting last scan log: {e}")
@@ -485,7 +500,7 @@ def get_all_scan_logs(limit=10):
 
 def set_scheduler_active(is_active):
     """
-    Toggles auto-scheduler active state and records start timestamp.
+    Toggles candlestick auto-scheduler active state and records start timestamp.
     """
     conn = get_db_connection()
     try:
@@ -502,17 +517,42 @@ def set_scheduler_active(is_active):
     finally:
         conn.close()
 
+def set_growth_scheduler_active(is_active):
+    """
+    Toggles growth auto-scheduler active state and records start timestamp.
+    """
+    conn = get_db_connection()
+    try:
+        now_str = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p") if is_active else None
+        with conn:
+            conn.execute(
+                "UPDATE scheduler_state SET growth_is_active = ?, growth_start_timestamp = CASE WHEN ? = 1 THEN ? ELSE NULL END WHERE id = 1;",
+                (1 if is_active else 0, 1 if is_active else 0, now_str)
+            )
+        return True
+    except sqlite3.Error as e:
+        logging.error(f"Database error setting growth scheduler active: {e}")
+        return False
+    finally:
+        conn.close()
+
 def get_scheduler_state():
     """
-    Returns current auto-scheduler toggle state and start timestamp.
+    Returns current auto-scheduler toggle state and start timestamp for both scanners.
     """
     conn = get_db_connection()
     try:
         row = conn.execute("SELECT * FROM scheduler_state WHERE id = 1;").fetchone()
-        return dict(row) if row else {"is_active": 0, "start_timestamp": None, "last_run_timestamp": None}
+        return dict(row) if row else {
+            "is_active": 0, "start_timestamp": None, "last_run_timestamp": None,
+            "growth_is_active": 0, "growth_start_timestamp": None, "growth_last_run_timestamp": None
+        }
     except sqlite3.Error as e:
         logging.error(f"Database error getting scheduler state: {e}")
-        return {"is_active": 0, "start_timestamp": None, "last_run_timestamp": None}
+        return {
+            "is_active": 0, "start_timestamp": None, "last_run_timestamp": None,
+            "growth_is_active": 0, "growth_start_timestamp": None, "growth_last_run_timestamp": None
+        }
     finally:
         conn.close()
 
