@@ -1271,9 +1271,6 @@ def render_management_dashboard(subscriber, token):
     # ----------------------------------------------------
     with tab_hub:
         # SECTION 1: AUTOMATED SCANNER & SCHEDULER CONTROL
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown('<div class="card-title">⚡ Automated Background Scanner & Scheduler Control</div>', unsafe_allow_html=True)
-        
         sched_state = database.get_scheduler_state()
         
         # 1. Technical Scheduler State
@@ -1326,7 +1323,7 @@ def render_management_dashboard(subscriber, token):
         # ------------------- COLUMN 1: TECHNICAL SCANNER -------------------
         with col_tech:
             st.markdown("""
-            <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px; min-height: 115px; box-sizing: border-box;">
+            <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px; min-height: 130px; box-sizing: border-box;">
                 <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.1rem;">📊 Candlestick Technical Reversal Engine</h4>
                 <p style="color: #94a3b8; font-size: 0.85rem; line-height: 1.4; margin: 0;">
                     Scans price charts & volume over the past 3 trading days for confirmed 
@@ -1368,7 +1365,7 @@ def render_management_dashboard(subscriber, token):
         # ------------------- COLUMN 2: GROWTH CATALYST SCANNER -------------------
         with col_growth:
             st.markdown("""
-            <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px; min-height: 115px; box-sizing: border-box;">
+            <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px; min-height: 130px; box-sizing: border-box;">
                 <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.1rem;">🚀 AI Growth & Contract Catalyst Engine</h4>
                 <p style="color: #94a3b8; font-size: 0.85rem; line-height: 1.4; margin: 0;">
                     Scans real-time news headlines & volume surges (&ge; 2.0x) using <strong style="color: #60a5fa;">Groq Llama 3.3-70B</strong> 
