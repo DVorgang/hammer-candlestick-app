@@ -59,6 +59,12 @@ def get_volume_metrics(ticker):
         logging.error(f"Error fetching volume metrics for {ticker}: {e}")
         return {"vol_mult": 1.0, "latest_vol": 0, "vol_20ma": 0}
 
+CATALYST_KEYWORDS = [
+    "contract", "deal", "partnership", "acquire", "acquisition", "earnings",
+    "revenue", "profit", "fda", "approval", "patent", "launch", "billion", "million",
+    "grant", "award", "skyrocket", "surge", "growth"
+]
+
 def scan_ticker_for_growth_catalyst(ticker, min_vol_mult=2.0):
     """
     Scans a stock for volume surges (>= 2.0x 20-day MA) and catalyst news.
@@ -67,11 +73,22 @@ def scan_ticker_for_growth_catalyst(ticker, min_vol_mult=2.0):
     vol_data = get_volume_metrics(ticker)
     news_items = get_google_stock_news(ticker)
     
+    has_vol_surge = vol_data["vol_mult"] >= min_vol_mult
+    has_keyword_news = False
+    
+    for item in news_items:
+        title_lower = item.get("title", "").lower()
+        if any(kw in title_lower for kw in CATALYST_KEYWORDS):
+            has_keyword_news = True
+            break
+
     return {
         "ticker": ticker.upper(),
         "vol_mult": vol_data["vol_mult"],
         "latest_vol": vol_data["latest_vol"],
         "vol_20ma": vol_data["vol_20ma"],
-        "has_volume_surge": vol_data["vol_mult"] >= min_vol_mult,
+        "has_volume_surge": has_vol_surge,
+        "has_keyword_news": has_keyword_news,
+        "should_evaluate_ai": has_vol_surge or has_keyword_news,
         "news": news_items
     }

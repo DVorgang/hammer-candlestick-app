@@ -152,7 +152,10 @@ def run_daily_scan(days_to_scan=3, trigger_type="manual"):
                 if ticker not in growth_cache:
                     try:
                         g_payload = growth_engine.scan_ticker_for_growth_catalyst(ticker)
-                        g_res = analyst_engine.evaluate_growth_catalyst(g_payload)
+                        if g_payload.get("should_evaluate_ai"):
+                            g_res = analyst_engine.evaluate_growth_catalyst(g_payload)
+                        else:
+                            g_res = None
                         growth_cache[ticker] = g_res
                     except Exception as e:
                         logging.error(f"Error checking growth catalyst for {ticker}: {e}")
