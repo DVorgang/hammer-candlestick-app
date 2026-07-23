@@ -123,6 +123,16 @@ st.markdown("""
         color: #38bdf8 !important;
         font-weight: 700 !important;
     }
+
+    /* Remove empty background containers & tab panel borders */
+    [data-baseweb="tab-panel"] {
+        padding-top: 15px !important;
+        background: transparent !important;
+        border: none !important;
+    }
+    .stTabs [data-baseweb="tab-border"] {
+        display: none !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
