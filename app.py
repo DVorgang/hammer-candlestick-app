@@ -1,3 +1,5 @@
+import base64
+import os
 from datetime import timedelta
 from datetime import datetime
 import streamlit as st
@@ -22,8 +24,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 # Set Page Config
 st.set_page_config(
-    page_title="Candlestick Sentinel",
-    page_icon="📈",
+    page_title="TradeRadar",
+    page_icon="🛰️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -1227,8 +1229,72 @@ def render_stock_detail_page(ticker, subscriber, token, show_back_button=True):
         def _draw_60():
             _render_stock_body(ticker, subscriber, token)
         _draw_60()
-    else:
-        _render_stock_body(ticker, subscriber, token)
+@st.cache_data(ttl=15)
+def get_watchlist_quotes(tickers_tuple):
+    """
+    Fast batch price & 24h change loader for Watchlist.
+    Returns dict: { 'AAPL': {'price': 224.30, 'change': 1.85, 'change_pct': 0.0083} }
+    """
+    if not tickers_tuple:
+        return {}
+    import yfinance as yf
+    tickers = list(tickers_tuple)
+    try:
+        data = yf.download(tickers, period="5d", progress=False, auto_adjust=True)
+        quotes = {}
+        if data.empty:
+            return quotes
+            
+        if len(tickers) == 1:
+            t = tickers[0]
+            if "Close" in data and len(data["Close"]) >= 2:
+                s = data["Close"].dropna()
+                if len(s) >= 2:
+                    latest = float(s.iloc[-1])
+                    prev = float(s.iloc[-2])
+                    chg = latest - prev
+                    chg_pct = (chg / prev) if prev > 0 else 0.0
+                    quotes[t] = {"price": latest, "change": chg, "change_pct": chg_pct}
+        else:
+            if "Close" in data:
+                close_df = data["Close"]
+                for t in tickers:
+                    if t in close_df.columns:
+                        s = close_df[t].dropna()
+                        if len(s) >= 2:
+                            latest = float(s.iloc[-1])
+                            prev = float(s.iloc[-2])
+                            chg = latest - prev
+                            chg_pct = (chg / prev) if prev > 0 else 0.0
+                            quotes[t] = {"price": latest, "change": chg, "change_pct": chg_pct}
+        return quotes
+    except Exception as e:
+        logging.error(f"Error fetching watchlist quotes: {e}")
+        return {}
+
+
+def get_base64_logo():
+    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "traderadar_logo.png")
+    if os.path.exists(logo_path):
+        try:
+            with open(logo_path, "rb") as f:
+                data = base64.b64encode(f.read()).decode("utf-8")
+            return f"data:image/png;base64,{data}"
+        except Exception:
+            return ""
+    return ""
+
+
+def get_base64_banner():
+    banner_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "traderadar_banner.png")
+    if os.path.exists(banner_path):
+        try:
+            with open(banner_path, "rb") as f:
+                data = base64.b64encode(f.read()).decode("utf-8")
+            return f"data:image/png;base64,{data}"
+        except Exception:
+            return ""
+    return get_base64_logo()
 
 
 def render_management_dashboard(subscriber, token):
@@ -1274,13 +1340,28 @@ def render_management_dashboard(subscriber, token):
         st.toast(st.session_state.pending_toast, icon="⭐")
         st.session_state.pending_toast = None
 
+    logo_b64 = get_base64_logo()
+    
+    if logo_b64:
+        header_html = f"""
+        <div style="margin-top: 5px; margin-bottom: 22px; display: flex; align-items: center; gap: 20px;">
+            <img src="{logo_b64}" style="width: 140px; height: 140px; border-radius: 16px; object-fit: contain; background: #0f172a; padding: 6px; border: 1px solid #334155; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); flex-shrink: 0;">
+            <div>
+                <h1 style="margin: 0; font-size: 2.6rem; font-weight: 800; background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1.1;">TradeRadar</h1>
+                <span style="color: #94a3b8; font-size: 1.05rem; display: inline-block; margin-top: 8px;">Real-time market scanning & portfolio intelligence for <strong style="color: #60a5fa;">{subscriber["email"]}</strong></span>
+            </div>
+        </div>
+        """
+    else:
+        header_html = f"""
+        <div style="margin-top: 5px; margin-bottom: 22px;">
+            <h1 style="margin: 0; font-size: 2.8rem; font-weight: 800; background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">TradeRadar</h1>
+            <span style="color: #94a3b8; font-size: 1.05rem; display: inline-block; margin-top: 6px;">Real-time market scanning & portfolio intelligence for <strong style="color: #60a5fa;">{subscriber["email"]}</strong></span>
+        </div>
+        """
+
     # 1. Clean Top Header
-    st.markdown(f"""
-    <div style="margin-top: 5px; margin-bottom: 20px;">
-        <h1 style="margin: 0; font-size: 2.1rem; font-weight: 800; color: #f8fafc;">🔧 Sentinel Control Panel</h1>
-        <span style="color: #94a3b8; font-size: 0.95rem;">Managing portfolio alerts for <strong style="color: #60a5fa;">{subscriber["email"]}</strong></span>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(header_html, unsafe_allow_html=True)
 
     # 2. Top KPI Stat Badges Bar
     buys_active = "Buys" if subscriber.get("wants_buys", 1) else ""
@@ -1289,7 +1370,7 @@ def render_management_dashboard(subscriber, token):
     growth_active = "Growth" if subscriber.get("wants_growth", 1) else ""
     active_channels = ", ".join(filter(None, [buys_active, risks_active, sells_active, growth_active])) or "None"
 
-    kpi1, kpi2, kpi3 = st.columns(3)
+    kpi1, kpi2 = st.columns(2)
     with kpi1:
         st.markdown(f"""
         <div class="card" style="padding: 16px; margin-bottom: 20px;">
@@ -1302,13 +1383,6 @@ def render_management_dashboard(subscriber, token):
         <div class="card" style="padding: 16px; margin-bottom: 20px;">
             <span style="color: #94a3b8; font-size: 0.85rem; font-weight: 600;">ACTIVE ALERT CHANNELS</span>
             <div style="font-size: 1.4rem; font-weight: 700; color: #38df88; margin-top: 8px;">{active_channels}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with kpi3:
-        st.markdown(f"""
-        <div class="card" style="padding: 16px; margin-bottom: 20px;">
-            <span style="color: #94a3b8; font-weight: 600; font-size: 0.85rem;">AI ANALYST ENGINE</span>
-            <div style="font-size: 1.4rem; font-weight: 700; color: #60a5fa; margin-top: 8px;">Groq Llama 3.3-70B</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1377,42 +1451,65 @@ def render_management_dashboard(subscriber, token):
                         st.session_state.pending_toast = f"Added {sugg} to your Watchlist!"
                         st.rerun()
         else:
-            st.write("Click any stock card to open full financial analysis, or click 🗑️ to remove:")
+            st.write("Click any stock to open full financial analysis, or click 🗑️ to remove:")
+            st.markdown('<div style="margin-bottom: 10px;"></div>', unsafe_allow_html=True)
             
-            # Stock Cards Grid (2 Tickers per Row)
-            cols_per_row = 2
-            for i in range(0, len(watchlist), cols_per_row):
-                row_tickers = watchlist[i:i + cols_per_row]
-                grid_cols = st.columns(cols_per_row)
-                for idx, ticker in enumerate(row_tickers):
-                    c_name = get_company_short_name(ticker)
-                    c_logo = get_company_logo_url(ticker)
-                    with grid_cols[idx]:
-                        st.markdown(f"""
-                        <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 14px; margin-bottom: 12px;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; overflow: hidden; white-space: nowrap;">
-                                <div style="display: flex; align-items: center; overflow: hidden; text-overflow: ellipsis;">
-                                    <img src="{c_logo}" style="width: 22px; height: 22px; border-radius: 4px; object-fit: contain; margin-right: 8px; background-color: #0f172a; padding: 2px;">
-                                    <span style="font-size: 1.2rem; font-weight: 800; color: #ffffff;">{ticker}</span>
-                                    <span style="color: #94a3b8; font-size: 0.9rem; font-weight: 600; margin-left: 6px; overflow: hidden; text-overflow: ellipsis;">· {c_name}</span>
-                                </div>
-                                <span style="color: #64748b; font-size: 0.75rem; font-weight: 600; margin-left: 8px;">US Equity</span>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        btn_col1, btn_col2 = st.columns([4, 1])
-                        with btn_col1:
-                            if st.button(f"Open {ticker} Analysis Page", key=f"view_card_{ticker}", type="primary", use_container_width=True):
-                                st.session_state.selected_ticker_detail = ticker
-                                st.session_state.search_tab_ticker = None
-                                st.rerun()
+            # Fetch cached live batch quotes for watchlist
+            quotes = get_watchlist_quotes(tuple(watchlist))
+            
+            # Simple, Clean Row/Column Layout
+            for ticker in watchlist:
+                c_name = get_company_short_name(ticker)
+                c_logo = get_company_logo_url(ticker)
+                q_data = quotes.get(ticker, {})
+                
+                # Format price and change
+                if q_data and q_data.get("price") is not None:
+                    price_val = q_data["price"]
+                    chg_val = q_data["change"]
+                    chg_pct_val = q_data["change_pct"]
+                    
+                    price_str = f"${price_val:.2f}"
+                    sign = "+" if chg_val >= 0 else ""
+                    color = "#38df88" if chg_val >= 0 else "#f87171"
+                    chg_str = f"{sign}{chg_val:.2f} ({sign}{chg_pct_val:.2%})"
+                    
+                    price_html = f"""
+                    <div style="display: flex; align-items: center; height: 38px; gap: 8px;">
+                        <span style="font-size: 1.05rem; font-weight: 800; color: #f8fafc;">{price_str}</span>
+                        <span style="font-size: 0.82rem; font-weight: 700; color: {color};">{chg_str}</span>
+                    </div>
+                    """
+                else:
+                    price_html = '<div style="display: flex; align-items: center; height: 38px;"><span style="color: #64748b; font-size: 0.85rem; font-weight: 600;">--</span></div>'
+                
+                rcol1, rcol2, rcol3, rcol4 = st.columns([3.5, 3.2, 1.6, 0.7])
+                
+                with rcol1:
+                    st.markdown(f"""
+                    <div style="display: flex; align-items: center; height: 38px;">
+                        <img src="{c_logo}" style="width: 24px; height: 24px; border-radius: 4px; object-fit: contain; background-color: #0f172a; padding: 2px; margin-right: 10px;">
+                        <span style="font-size: 1.1rem; font-weight: 800; color: #ffffff;">{ticker}</span>
+                        <span style="color: #94a3b8; font-size: 0.82rem; font-weight: 600; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">· {c_name}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with rcol2:
+                    st.markdown(price_html, unsafe_allow_html=True)
+                
+                with rcol3:
+                    if st.button("🔍 Analyze", key=f"view_row_{ticker}", type="primary", use_container_width=True):
+                        st.session_state.selected_ticker_detail = ticker
+                        st.session_state.search_tab_ticker = None
+                        st.rerun()
 
-                        with btn_col2:
-                            if st.button("🗑️", key=f"del_card_{ticker}", use_container_width=True):
-                                database.remove_watchlist_ticker(subscriber["id"], ticker)
-                                st.session_state.pending_toast = f"Removed {ticker} from your Watchlist."
-                                st.rerun()
+                with rcol4:
+                    if st.button("🗑️", key=f"del_row_{ticker}", use_container_width=True):
+                        database.remove_watchlist_ticker(subscriber["id"], ticker)
+                        st.session_state.pending_toast = f"Removed {ticker} from your Watchlist."
+                        st.rerun()
+                
+                st.markdown("<div style='border-bottom: 1px solid #1e293b; margin: 4px 0 10px 0;'></div>", unsafe_allow_html=True)
                                 
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1698,7 +1795,7 @@ def render_management_dashboard(subscriber, token):
 
         # SECTION 3: SYSTEM LEARNING & OUTCOME PERFORMANCE MATRIX
         with st.expander("🧠 System Learning & Post-Trade Outcome Matrix", expanded=True):
-            st.write("Candlestick Sentinel continuously tracks post-alert price action to evaluate setup accuracy, feed outcomes back into AI analysis, and dynamically calibrate confidence scoring:")
+            st.write("TradeRadar AI continuously tracks post-alert price action to evaluate setup accuracy, feed outcomes back into AI analysis, and dynamically calibrate confidence scoring:")
             
             stats = database.get_historical_accuracy_stats()
             outcomes = database.get_all_alert_outcomes(limit=20)
