@@ -79,17 +79,98 @@ def _validate_analysis(data):
     return analysis
 
 
+# ─── AI Model Fallback Chain ───
+# When a model hits rate limits (429), automatically cascade to the next one.
+# Chain: Groq 70B → Groq 8B (same key, 5x higher limits) → Gemini Flash (free, if key set)
+
+def _build_fallback_chain():
+    """
+    Builds an ordered list of (provider_name, base_url, api_key, model) tuples.
+    Only includes providers that have API keys configured.
+    """
+    chain = []
+    
+    groq_key = os.environ.get("GROQ_API_KEY")
+    if groq_key:
+        primary_model = os.environ.get("AI_ANALYST_MODEL") or "llama-3.3-70b-versatile"
+        chain.append(("Groq-70B", "https://api.groq.com/openai/v1", groq_key, primary_model))
+        # Fallback: smaller Groq model with 5x higher rate limits (same API key)
+        if primary_model != "llama-3.1-8b-instant":
+            chain.append(("Groq-8B", "https://api.groq.com/openai/v1", groq_key, "llama-3.1-8b-instant"))
+    
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    if gemini_key:
+        chain.append(("Gemini-Flash", "https://generativelanguage.googleapis.com/v1beta/openai/", gemini_key, "gemini-2.0-flash"))
+    
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if openai_key:
+        chain.append(("OpenAI", None, openai_key, os.environ.get("AI_ANALYST_MODEL") or "gpt-4o-mini"))
+    
+    return chain
+
+
+def _call_ai_with_fallback(instructions, prompt, context_label="AI"):
+    """
+    Calls the AI model chain with automatic 429 fallback.
+    Returns the raw parsed JSON dict, or None if all models fail.
+    """
+    try:
+        from openai import OpenAI
+    except ImportError:
+        logging.warning("OpenAI package is not installed. Skipping AI analysis.")
+        return None
+
+    chain = _build_fallback_chain()
+    if not chain:
+        logging.warning("No AI API keys configured. Skipping AI analysis.")
+        return None
+
+    for provider_name, base_url, api_key, model in chain:
+        try:
+            kwargs = {"api_key": api_key}
+            if base_url:
+                kwargs["base_url"] = base_url
+            client = OpenAI(**kwargs)
+            
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": instructions},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_completion_tokens=700,
+                response_format={"type": "json_object"},
+            )
+            content = response.choices[0].message.content
+            data = _extract_json(content)
+            logging.info(f"{context_label} evaluation succeeded via {provider_name} ({model})")
+            return data
+            
+        except Exception as exc:
+            error_str = str(exc)
+            is_rate_limit = "429" in error_str or "rate_limit" in error_str.lower()
+            
+            if is_rate_limit:
+                logging.warning(f"⚡ {provider_name} ({model}) rate-limited for {context_label}. Falling back to next model...")
+                continue
+            else:
+                logging.warning(f"{provider_name} ({model}) failed for {context_label}: {exc}")
+                return None
+    
+    logging.warning(f"All AI models exhausted for {context_label}. No fallback available.")
+    return None
+
+
 def analyze_signal(signal):
     """
     Adds an optional AI analyst layer after the deterministic signal is found.
     The math engine remains the source of truth for pattern detection.
+    Uses the automatic fallback chain (Groq 70B → Groq 8B → Gemini Flash).
     """
     if not is_ai_enabled():
         return None
 
-    provider = os.environ.get("AI_PROVIDER", "groq").lower()
-    model = os.environ.get("AI_ANALYST_MODEL") or ("llama-3.3-70b-versatile" if provider == "groq" else "gpt-4o-mini")
-    use_web_search = os.environ.get("AI_ANALYST_WEB_SEARCH", "true").lower() != "false" and provider == "openai"
     ticker = signal.get("ticker", "UNKNOWN")
     payload = _signal_payload(signal)
 
@@ -107,72 +188,16 @@ def analyze_signal(signal):
         f"{json.dumps(payload, indent=2)}"
     )
 
-    if provider == "groq":
-        return _analyze_with_groq(model, instructions, prompt)
+    data = _call_ai_with_fallback(instructions, prompt, context_label=f"Technical-{ticker}")
+    if data:
+        return _validate_analysis(data)
+    return None
 
-    return _analyze_with_openai(model, instructions, prompt, use_web_search)
-
-
-def _analyze_with_openai(model, instructions, prompt, use_web_search):
-    try:
-        from openai import OpenAI
-    except ImportError:
-        logging.warning("OpenAI package is not installed. Skipping AI analyst notes.")
-        return None
-
-    client = OpenAI()
-    messages = [
-        {"role": "system", "content": instructions},
-        {"role": "user", "content": prompt},
-    ]
-
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=0.2,
-            max_tokens=700,
-            response_format={"type": "json_object"},
-        )
-        content = response.choices[0].message.content
-        return _validate_analysis(_extract_json(content))
-    except Exception as exc:
-        logging.warning(f"OpenAI analyst call failed: {exc}")
-        return None
-
-
-def _analyze_with_groq(model, instructions, prompt):
-    try:
-        from openai import OpenAI
-    except ImportError:
-        logging.warning("OpenAI package is not installed. Skipping Groq analyst notes.")
-        return None
-
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        return None
-
-    client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": instructions},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,
-            max_completion_tokens=700,
-            response_format={"type": "json_object"},
-        )
-        content = response.choices[0].message.content
-        return _validate_analysis(_extract_json(content))
-    except Exception as exc:
-        logging.warning(f"Groq analyst call failed: {exc}")
-        return None
 
 def evaluate_growth_catalyst(growth_payload):
     """
-    Evaluates news headlines & volume multiplier to rate Growth Potential (1-10) using Groq Llama 3.3-70B.
+    Evaluates news headlines & volume multiplier to rate Growth Potential (1-10).
+    Uses the automatic fallback chain (Groq 70B → Groq 8B → Gemini Flash).
     """
     if not is_ai_enabled():
         return None
@@ -202,33 +227,13 @@ def evaluate_growth_catalyst(growth_payload):
     Evaluate if this is a high-growth fundamental catalyst (contract, earnings, partnership, milestone) or just minor chatter.
     """
 
-    provider = os.environ.get("AI_PROVIDER", "groq").lower()
-    model = os.environ.get("AI_ANALYST_MODEL") or ("llama-3.3-70b-versatile" if provider == "groq" else "gpt-4o-mini")
-
-    try:
-        from openai import OpenAI
-        api_key = os.environ.get("GROQ_API_KEY") if provider == "groq" else os.environ.get("OPENAI_API_KEY")
-        base_url = "https://api.groq.com/openai/v1" if provider == "groq" else None
-        
-        client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": instructions},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,
-            max_completion_tokens=700,
-            response_format={"type": "json_object"},
-        )
-        content = response.choices[0].message.content
-        data = _extract_json(content)
+    data = _call_ai_with_fallback(instructions, prompt, context_label=f"Growth-{ticker}")
+    if data:
         data["growth_score"] = float(data.get("growth_score") or 5.0)
         # Pass through original news items so the email can include article links
         data["news_articles"] = news
         data["ticker"] = ticker
         data["vol_mult"] = vol_mult
         return data
-    except Exception as e:
-        logging.warning(f"Growth catalyst evaluation failed for {ticker}: {e}")
-        return None
+    return None
+
