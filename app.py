@@ -26,8 +26,8 @@ st.set_page_config(
 
 import threading
 import time
-from datetime import datetime, timedelta
 import daily_scanner
+import growth_scanner
 
 # Background Auto-Scheduler Daemon Thread Setup
 _scheduler_thread = None
@@ -1279,17 +1279,26 @@ def render_management_dashboard(subscriber, token):
                 uptime_str = "Active"
 
         # Action Control Buttons
-        sc1, sc2 = st.columns([1, 1])
+        sc1, sc2, sc3 = st.columns([1, 1, 1])
         with sc1:
-            if st.button("▶️ Run Instant Daily Scan Now", type="primary", use_container_width=True):
-                with st.spinner("Executing full daily scanner across watchlist and running Groq AI..."):
+            if st.button("📊 Run Candlestick Technical Scan", type="primary", use_container_width=True):
+                with st.spinner("Scanning watchlist for Hammer & Hanging Man pattern setups..."):
                     start_t = time.time()
                     daily_scanner.run_daily_scan(days_to_scan=3, trigger_type="manual")
                     dur = time.time() - start_t
-                    st.session_state.pending_toast = f"Scan complete! Took {dur:.2f}s across watchlist."
+                    st.session_state.pending_toast = f"Technical scan complete! Took {dur:.2f}s."
                     st.rerun()
 
         with sc2:
+            if st.button("🚀 Run AI Growth Catalyst Scan", type="primary", use_container_width=True):
+                with st.spinner("Scanning volume surges & news headlines with Groq Llama 3.3-70B..."):
+                    start_t = time.time()
+                    growth_scanner.run_growth_scan(trigger_type="manual_ui")
+                    dur = time.time() - start_t
+                    st.session_state.pending_toast = f"Growth catalyst scan complete! Took {dur:.2f}s."
+                    st.rerun()
+
+        with sc3:
             toggle_label = "🛑 Stop Auto-Scheduler" if is_sched_active else "⚡ Start Auto-Scheduler (Twice Daily)"
             btn_type = "secondary" if is_sched_active else "primary"
             if st.button(toggle_label, type=btn_type, use_container_width=True):
