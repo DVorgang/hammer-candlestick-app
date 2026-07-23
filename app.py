@@ -1153,12 +1153,10 @@ def render_management_dashboard(subscriber, token):
         </div>
         """, unsafe_allow_html=True)
 
-    # Main Dashboard Tabs
-    tab_watchlist, tab_scanner, tab_backtester, tab_settings = st.tabs([
+    # Main Dashboard Tabs (Clean 2-Tab Layout)
+    tab_watchlist, tab_hub = st.tabs([
         "📋 Watchlist", 
-        "🔍 Live Scanner", 
-        "🧪 Backtest Sandbox",
-        "⚙️ Alert Settings"
+        "⚡ Scanner, Alerts & Backtesting"
     ])
     
     # ----------------------------------------------------
@@ -1181,7 +1179,6 @@ def render_management_dashboard(subscriber, token):
                 add_btn = st.form_submit_button("➕ Add Stock", type="primary", use_container_width=True)
 
             if add_btn:
-                # Extract clean ticker symbol if user typed 'SIRI' or 'SIRI - Sirius XM'
                 target_symbol = new_ticker_input.split(" ")[0].split("-")[0].strip().upper()
                 if not target_symbol:
                     st.error("Please enter a ticker symbol.")
@@ -1246,86 +1243,10 @@ def render_management_dashboard(subscriber, token):
         st.markdown('</div>', unsafe_allow_html=True)
 
     # ----------------------------------------------------
-    # TAB 4: CONSOLIDATED ALERT SETTINGS
+    # TAB 2: SCANNER, ALERTS & BACKTESTING
     # ----------------------------------------------------
-    with tab_settings:
-        col_set1, col_set2 = st.columns([1, 1])
-        
-        with col_set1:
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.markdown('<div class="card-title">Alert Notification Preferences</div>', unsafe_allow_html=True)
-            
-            st.checkbox(
-                "🟢 Buy Opportunities (Hammer Reversals)",
-                value=bool(subscriber["wants_buys"]),
-                key="wants_buys_check",
-                on_change=on_pref_change
-            )
-            st.checkbox(
-                "🟡 Medium Risk Alerts (Hanging Man Reversals)",
-                value=bool(subscriber["wants_risks"]),
-                key="wants_risks_check",
-                on_change=on_pref_change
-            )
-            st.checkbox(
-                "🔴 High Risk Sell Warnings (High-Volume Hanging Man)",
-                value=bool(subscriber["wants_sells"]),
-                key="wants_sells_check",
-                on_change=on_pref_change
-            )
-            
-            st.markdown('<p style="font-size: 13px; color: #94a3b8; margin-top: 15px;">Preferences update automatically in real-time when toggled.</p>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-            
-        with col_set2:
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.markdown('<div class="card-title">Email Delivery Tester</div>', unsafe_allow_html=True)
-            st.write("Send a test alert email to your address:")
-            
-            test_btn = st.button("📧 Send Test Alert Email", use_container_width=True)
-            if test_btn:
-                mock_ticker = watchlist[0] if watchlist else "NVDA"
-                mock_signal = {
-                    "ticker": mock_ticker,
-                    "pattern_type": "Hammer",
-                    "confidence_score": 88.5,
-                    "rsi_14": 28.2,
-                    "vol_mult": 1.95,
-                    "day1_date": "2026-06-05",
-                    "day1_close": 120.0,
-                    "day1_low": 115.0,
-                    "day1_high": 121.0,
-                    "day2_date": "2026-06-08",
-                    "day2_close": 125.0
-                }
-                
-                with st.spinner("Running Groq AI analyst check..."):
-                    ai_analysis = analyst_engine.analyze_signal(mock_signal)
-                if ai_analysis:
-                    mock_signal["ai_analysis"] = ai_analysis
-                email_html = notifier.format_alert_email(mock_signal, token)
-                real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], email_html, mock_ticker)
-                
-                if real_sent:
-                    st.success(f"✅ {status_msg}")
-                else:
-                    st.info(f"ℹ️ {status_msg}")
-                    st.write("**Simulated Email Output:**")
-                    st.components.v1.html(email_html, height=450, scrolling=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-            
-            st.markdown('<div class="card" style="margin-top: 15px;">', unsafe_allow_html=True)
-            st.markdown('<div class="card-title">Unsubscribe Account</div>', unsafe_allow_html=True)
-            st.write("Erase all alert preferences and delete your watchlist:")
-            if st.button("Unsubscribe Completely", type="primary", use_container_width=True):
-                st.query_params.update(unsubscribe="true")
-                st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-            
-    # ----------------------------------------------------
-    # TAB 2: LIVE SCANNER & AUTOMATED SCHEDULER
-    # ----------------------------------------------------
-    with tab_scanner:
+    with tab_hub:
+        # SECTION 1: AUTOMATED SCANNER & SCHEDULER CONTROL
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown('<div class="card-title">⚡ Automated Background Scanner & Scheduler Control</div>', unsafe_allow_html=True)
         
@@ -1407,65 +1328,40 @@ def render_management_dashboard(subscriber, token):
 
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Expandable Dropdowns for Clean UI
-        with st.expander("📄 View Recent Scanner Run Logs", expanded=False):
-            logs = database.get_all_scan_logs(limit=10)
-            if not logs:
-                st.info("No scanner execution logs recorded yet. Click 'Run Instant Daily Scan Now' above to perform your first scan!")
-            else:
-                log_df = pd.DataFrame(logs)
-                log_df["duration_seconds"] = log_df["duration_seconds"].apply(lambda x: f"{x:.2f}s")
-                log_df = log_df.rename(columns={
-                    "timestamp": "Timestamp",
-                    "duration_seconds": "Duration",
-                    "tickers_scanned": "Tickers",
-                    "signals_found": "Setups Found",
-                    "alerts_sent": "Alerts Sent",
-                    "trigger_type": "Trigger Type"
-                })
-                st.table(log_df[["Timestamp", "Trigger Type", "Duration", "Tickers", "Setups Found", "Alerts Sent"]])
-
-        with st.expander("📧 View Live Alert Email Layout Inspector", expanded=False):
-            st.write("Inspect how Groq AI formats candlestick setup email alerts delivered to your inbox:")
-            if watchlist:
-                demo_ticker = watchlist[0]
-                demo_signal = {
-                    "ticker": demo_ticker,
-                    "pattern_type": "Hammer",
-                    "confidence_score": 89.2,
-                    "rsi_14": 29.1,
-                    "vol_mult": 1.85,
-                    "day1_date": "2026-07-21",
-                    "day1_close": 150.0,
-                    "day1_low": 142.0,
-                    "day1_high": 152.0,
-                    "day2_date": "2026-07-22",
-                    "day2_close": 155.0,
-                    "day3_open": 156.0
-                }
-                demo_ai = analyst_engine.analyze_signal(demo_signal)
-                if demo_ai:
-                    demo_signal["ai_analysis"] = demo_ai
-                demo_html = notifier.format_alert_email(demo_signal, token)
-                st.components.v1.html(demo_html, height=520, scrolling=True)
-            else:
-                st.info("Add stock tickers to your Watchlist to view email alert previews.")
-
-    # ----------------------------------------------------
-    # TAB 3: BACKTESTER SANDBOX
-    # ----------------------------------------------------
-    with tab_backtester:
+        # SECTION 2: ALERT NOTIFICATION PREFERENCES
         st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown('<div class="card-title">Historical Backtester Sandbox</div>', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">🔔 Alert Notification Channel Preferences</div>', unsafe_allow_html=True)
         
+        st.checkbox(
+            "🟢 Buy Opportunities (Hammer Reversals)",
+            value=bool(subscriber["wants_buys"]),
+            key="wants_buys_check",
+            on_change=on_pref_change
+        )
+        st.checkbox(
+            "🟡 Medium Risk Alerts (Hanging Man Reversals)",
+            value=bool(subscriber["wants_risks"]),
+            key="wants_risks_check",
+            on_change=on_pref_change
+        )
+        st.checkbox(
+            "🔴 High Risk Sell Warnings (High-Volume Hanging Man)",
+            value=bool(subscriber["wants_sells"]),
+            key="wants_sells_check",
+            on_change=on_pref_change
+        )
+        st.markdown('<p style="font-size: 13px; color: #94a3b8; margin-top: 10px;">Preferences update automatically in real-time when toggled.</p>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # SECTION 3: 2-YEAR STRATEGY BACKTEST SANDBOX
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">🧪 2-Year Strategy Backtest Sandbox</div>', unsafe_allow_html=True)
         st.write("Run historical simulations of the **3-day rigid trading strategy** to verify how a ticker performed over a 2-year window:")
         
-        watchlist = database.get_watchlist(subscriber["id"])
         default_ticker = watchlist[0] if watchlist else "NVDA"
+        backtest_ticker = st.text_input("Enter Ticker to Backtest", value=default_ticker, key="hub_bt_ticker").strip().upper()
         
-        backtest_ticker = st.text_input("Enter Ticker to Backtest", value=default_ticker).strip().upper()
-        
-        bt_btn = st.button("Run Simulation", type="primary")
+        bt_btn = st.button("Run Strategy Backtest Simulation", type="primary")
         if bt_btn:
             if not backtest_ticker:
                 st.error("Please enter a valid ticker symbol.")
@@ -1493,7 +1389,6 @@ def render_management_dashboard(subscriber, token):
                         st.write("### Simulation Trade Logs (No Lookahead Bias)")
                         
                         trade_df = pd.DataFrame(res["trades"])
-                        
                         trade_df["entry_price"] = trade_df["entry_price"].map(lambda x: f"${x:.2f}")
                         trade_df["stop_loss"] = trade_df["stop_loss"].map(lambda x: f"${x:.2f}")
                         trade_df["profit_target"] = trade_df["profit_target"].map(lambda x: f"${x:.2f}")
@@ -1504,10 +1399,66 @@ def render_management_dashboard(subscriber, token):
                             "Setup Date", "Pattern", "Score", "Entry Date", "Entry Price", 
                             "Stop Loss", "Profit Target", "Exit Date", "Exit Price", "Exit Reason", "Return"
                         ]
-                        
                         st.dataframe(trade_df, use_container_width=True)
                         
         st.markdown('</div>', unsafe_allow_html=True)
+
+        # SECTION 4: EXPANDABLE DROPDOWNS FOR LOGS & UTILITIES
+        with st.expander("📄 View Recent Scanner Run Logs", expanded=False):
+            logs = database.get_all_scan_logs(limit=10)
+            if not logs:
+                st.info("No scanner execution logs recorded yet. Click 'Run Instant Daily Scan Now' above to perform your first scan!")
+            else:
+                log_df = pd.DataFrame(logs)
+                log_df["duration_seconds"] = log_df["duration_seconds"].apply(lambda x: f"{x:.2f}s")
+                log_df = log_df.rename(columns={
+                    "timestamp": "Timestamp",
+                    "duration_seconds": "Duration",
+                    "tickers_scanned": "Tickers",
+                    "signals_found": "Setups Found",
+                    "alerts_sent": "Alerts Sent",
+                    "trigger_type": "Trigger Type"
+                })
+                st.table(log_df[["Timestamp", "Trigger Type", "Duration", "Tickers", "Setups Found", "Alerts Sent"]])
+
+        with st.expander("📧 Email Delivery Tester & Layout Inspector", expanded=False):
+            st.write("Send a test alert email to your address or inspect how Groq AI formats email notifications:")
+            
+            test_btn = st.button("📧 Send Test Alert Email Now", use_container_width=True)
+            if test_btn:
+                mock_ticker = watchlist[0] if watchlist else "NVDA"
+                mock_signal = {
+                    "ticker": mock_ticker,
+                    "pattern_type": "Hammer",
+                    "confidence_score": 88.5,
+                    "rsi_14": 28.2,
+                    "vol_mult": 1.95,
+                    "day1_date": "2026-06-05",
+                    "day1_close": 120.0,
+                    "day1_low": 115.0,
+                    "day1_high": 121.0,
+                    "day2_date": "2026-06-08",
+                    "day2_close": 125.0
+                }
+                with st.spinner("Running Groq AI analyst check..."):
+                    ai_analysis = analyst_engine.analyze_signal(mock_signal)
+                if ai_analysis:
+                    mock_signal["ai_analysis"] = ai_analysis
+                email_html = notifier.format_alert_email(mock_signal, token)
+                real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], email_html, mock_ticker)
+                
+                if real_sent:
+                    st.success(f"✅ {status_msg}")
+                else:
+                    st.info(f"ℹ️ {status_msg}")
+                    st.write("**Simulated Email Output:**")
+                    st.components.v1.html(email_html, height=450, scrolling=True)
+
+        with st.expander("🗑️ Account Settings & Unsubscribe", expanded=False):
+            st.write("Erase all alert preferences and delete your watchlist:")
+            if st.button("Unsubscribe Completely", type="primary", use_container_width=True):
+                st.query_params.update(unsubscribe="true")
+                st.rerun()
 
 if __name__ == "__main__":
     main()
