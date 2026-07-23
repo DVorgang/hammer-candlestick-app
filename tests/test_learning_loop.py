@@ -17,9 +17,15 @@ import logging
 
 logging.basicConfig(level=logging.INFO)
 
+TEST_DB = "test_sentinel_temp.db"
+database.DB_FILE = TEST_DB
+
 print("--- 1. Initializing Database & Testing Schema ---")
 database.init_db()
 subs = database.get_all_subscribers()
+if not subs:
+    database.create_subscriber("test_subscriber@example.com")
+    subs = database.get_all_subscribers()
 mock_subscriber_id = subs[0]["id"] if subs else 1
 
 
@@ -62,4 +68,14 @@ if ai_analysis:
     print(f"AI Takeaway: {ai_analysis.get('plain_english_takeaway')}")
 
 print("\nALL SYSTEM LEARNING & FEEDBACK LOOP TESTS PASSED SUCCESSFULLY!")
+
+if os.path.exists(TEST_DB):
+    try:
+        os.remove(TEST_DB)
+        wal_file = f"{TEST_DB}-wal"
+        shm_file = f"{TEST_DB}-shm"
+        if os.path.exists(wal_file): os.remove(wal_file)
+        if os.path.exists(shm_file): os.remove(shm_file)
+    except Exception as e:
+        print(f"Cleanup warning: {e}")
 

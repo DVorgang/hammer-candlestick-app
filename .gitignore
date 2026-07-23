@@ -1,5 +1,9 @@
 .env
 __pycache__/
 *.pyc
+*.log
 sentinel.db
-daily_scanner.log
+*.db
+*.db-wal
+*.db-shm
+

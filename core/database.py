@@ -11,10 +11,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 def get_db_connection():
     """
-    Establishes connection to the SQLite database and forces foreign key support.
+    Establishes connection to the SQLite database with WAL mode, busy timeout, and foreign key support.
     """
     try:
-        conn = sqlite3.connect(DB_FILE)
+        conn = sqlite3.connect(DB_FILE, timeout=30.0)
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA busy_timeout = 5000;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
         conn.execute("PRAGMA foreign_keys = ON;")
         conn.row_factory = sqlite3.Row
         return conn
@@ -774,6 +777,30 @@ def get_scheduler_state():
             "is_active": 0, "start_timestamp": None, "last_run_timestamp": None,
             "growth_is_active": 0, "growth_start_timestamp": None, "growth_last_run_timestamp": None
         }
+    finally:
+        conn.close()
+
+def get_system_health():
+    """
+    Returns system database connectivity status, SQLite journal mode, and scheduler timestamps.
+    Used by healthcheck scripts and system monitoring.
+    """
+    conn = get_db_connection()
+    try:
+        journal_mode = conn.execute("PRAGMA journal_mode;").fetchone()[0]
+        integrity = conn.execute("PRAGMA quick_check;").fetchone()[0]
+        state = get_scheduler_state()
+        last_log = get_last_scan_log()
+        return {
+            "status": "healthy" if integrity == "ok" else "unhealthy",
+            "journal_mode": journal_mode,
+            "integrity_check": integrity,
+            "scheduler_state": state,
+            "last_scan_log": last_log
+        }
+    except Exception as e:
+        logging.error(f"Healthcheck database error: {e}")
+        return {"status": "error", "error": str(e)}
     finally:
         conn.close()
 

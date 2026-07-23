@@ -15,6 +15,9 @@ from core import database
 from engines import pattern_engine
 from ai import analyst_engine
 
+TEST_DB = "test_sentinel_temp.db"
+database.DB_FILE = TEST_DB
+
 print("==========================================================")
 print("DEEP DIVE TEST SUITE: System Learning & Outcome Matrix")
 
@@ -23,6 +26,9 @@ print("==========================================================")
 # 1. Test Database Initialization & Subscriber lookup
 database.init_db()
 subs = database.get_all_subscribers()
+if not subs:
+    database.create_subscriber("test_subscriber@example.com")
+    subs = database.get_all_subscribers()
 sub_id = subs[0]["id"] if subs else 1
 
 print("\n--- 1. Testing Null/NaN UI Dataframe Formatter ---")
@@ -106,3 +112,13 @@ stats = database.get_historical_accuracy_stats()
 print(f"Global System Track Record Stats: {stats}")
 
 print("\nALL DEEP DIVE OUTCOME MATRIX TESTS PASSED PERFECTLY!")
+
+if os.path.exists(TEST_DB):
+    try:
+        os.remove(TEST_DB)
+        wal_file = f"{TEST_DB}-wal"
+        shm_file = f"{TEST_DB}-shm"
+        if os.path.exists(wal_file): os.remove(wal_file)
+        if os.path.exists(shm_file): os.remove(shm_file)
+    except Exception as e:
+        print(f"Cleanup warning: {e}")
