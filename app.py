@@ -1326,9 +1326,9 @@ def render_management_dashboard(subscriber, token):
         # ------------------- COLUMN 1: TECHNICAL SCANNER -------------------
         with col_tech:
             st.markdown("""
-            <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px;">
+            <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px; min-height: 115px; box-sizing: border-box;">
                 <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.1rem;">📊 Candlestick Technical Reversal Engine</h4>
-                <p style="color: #94a3b8; font-size: 0.85rem; line-height: 1.4; margin-bottom: 12px;">
+                <p style="color: #94a3b8; font-size: 0.85rem; line-height: 1.4; margin: 0;">
                     Scans price charts & volume over the past 3 trading days for confirmed 
                     <strong style="color: #38df88;">Hammer Buy Reversals</strong> (RSI &lt; 50) and 
                     <strong style="color: #f87171;">Hanging Man Risk Warnings</strong>.
@@ -1336,7 +1336,7 @@ def render_management_dashboard(subscriber, token):
             </div>
             """, unsafe_allow_html=True)
             
-            st.write("**1. Run On-Demand:**")
+            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-bottom: 6px;'>1. Run On-Demand:</p>", unsafe_allow_html=True)
             if st.button("▶️ Run Instant Technical Scan", type="primary", use_container_width=True, key="btn_tech_manual"):
                 with st.spinner("Scanning watchlist for Hammer & Hanging Man pattern setups..."):
                     start_t = time.time()
@@ -1345,7 +1345,7 @@ def render_management_dashboard(subscriber, token):
                     st.session_state.pending_toast = f"Technical scan complete! Took {dur:.2f}s."
                     st.rerun()
 
-            st.write("**2. Twice-Daily Auto-Scheduler:**")
+            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Twice-Daily Auto-Scheduler:</p>", unsafe_allow_html=True)
             toggle_label = "🛑 Stop Technical Auto-Scheduler" if is_sched_active else "⚡ Start Technical Auto-Scheduler"
             btn_type = "secondary" if is_sched_active else "primary"
             if st.button(toggle_label, type=btn_type, use_container_width=True, key="btn_tech_sched"):
@@ -1368,16 +1368,16 @@ def render_management_dashboard(subscriber, token):
         # ------------------- COLUMN 2: GROWTH CATALYST SCANNER -------------------
         with col_growth:
             st.markdown("""
-            <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px;">
+            <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px; min-height: 115px; box-sizing: border-box;">
                 <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.1rem;">🚀 AI Growth & Contract Catalyst Engine</h4>
-                <p style="color: #94a3b8; font-size: 0.85rem; line-height: 1.4; margin-bottom: 12px;">
+                <p style="color: #94a3b8; font-size: 0.85rem; line-height: 1.4; margin: 0;">
                     Scans real-time news headlines & volume surges (&ge; 2.0x) using <strong style="color: #60a5fa;">Groq Llama 3.3-70B</strong> 
                     to detect contract wins, earnings beats, and FDA approvals (&ge; 7.0/10).
                 </p>
             </div>
             """, unsafe_allow_html=True)
 
-            st.write("**1. Run On-Demand:**")
+            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-bottom: 6px;'>1. Run On-Demand:</p>", unsafe_allow_html=True)
             if st.button("🚀 Run Instant Growth Catalyst Scan", type="primary", use_container_width=True, key="btn_growth_manual"):
                 with st.spinner("Scanning volume surges & news headlines with Groq Llama 3.3-70B..."):
                     start_t = time.time()
@@ -1386,7 +1386,7 @@ def render_management_dashboard(subscriber, token):
                     st.session_state.pending_toast = f"Growth catalyst scan complete! Took {dur:.2f}s."
                     st.rerun()
 
-            st.write("**2. Twice-Daily Auto-Scheduler:**")
+            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Twice-Daily Auto-Scheduler:</p>", unsafe_allow_html=True)
             g_toggle_label = "🛑 Stop Growth Auto-Scheduler" if is_growth_active else "🚀 Start Growth Auto-Scheduler"
             g_btn_type = "secondary" if is_growth_active else "primary"
             if st.button(g_toggle_label, type=g_btn_type, use_container_width=True, key="btn_growth_sched"):
