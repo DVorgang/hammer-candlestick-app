@@ -24,6 +24,47 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+import threading
+import time
+from datetime import datetime, timedelta
+import daily_scanner
+
+# Background Auto-Scheduler Daemon Thread Setup
+_scheduler_thread = None
+
+def _run_background_scheduler_loop():
+    while True:
+        try:
+            state = database.get_scheduler_state()
+            if state and state.get("is_active"):
+                last_run = state.get("last_run_timestamp")
+                should_run = False
+                if not last_run:
+                    should_run = True
+                else:
+                    try:
+                        last_dt = datetime.strptime(last_run, "%Y-%m-%d %H:%M:%S")
+                        # Run twice daily (every 12 hours)
+                        if datetime.now() - last_dt >= timedelta(hours=12):
+                            should_run = True
+                    except Exception:
+                        should_run = True
+                
+                if should_run:
+                    daily_scanner.run_daily_scan(days_to_scan=3, trigger_type="scheduled")
+        except Exception as e:
+            logging.error(f"Error in background scheduler loop: {e}")
+        time.sleep(60)
+
+def init_scheduler_daemon():
+    global _scheduler_thread
+    if _scheduler_thread is None or not _scheduler_thread.is_alive():
+        _scheduler_thread = threading.Thread(target=_run_background_scheduler_loop, daemon=True)
+        _scheduler_thread.start()
+        logging.info("Auto-Scheduler background daemon thread initialized.")
+
+init_scheduler_daemon()
+
 # Custom premium CSS
 st.markdown("""
 <style>
