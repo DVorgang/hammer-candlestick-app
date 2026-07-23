@@ -1447,55 +1447,52 @@ def render_management_dashboard(subscriber, token):
         st.markdown('<p style="font-size: 13px; color: #94a3b8; margin-top: 10px;">Preferences update automatically in real-time when toggled.</p>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # SECTION 3: 2-YEAR STRATEGY BACKTEST SANDBOX
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown('<div class="card-title">🧪 2-Year Strategy Backtest Sandbox</div>', unsafe_allow_html=True)
-        st.write("Run historical simulations of the **3-day rigid trading strategy** to verify how a ticker performed over a 2-year window:")
-        
-        default_ticker = watchlist[0] if watchlist else "NVDA"
-        backtest_ticker = st.text_input("Enter Ticker to Backtest", value=default_ticker, key="hub_bt_ticker").strip().upper()
-        
-        bt_btn = st.button("Run Strategy Backtest Simulation", type="primary")
-        if bt_btn:
-            if not backtest_ticker:
-                st.error("Please enter a valid ticker symbol.")
-            else:
-                with st.spinner(f"Simulating strategy for {backtest_ticker}..."):
-                    res = backtest.run_backtest(backtest_ticker, period="2y")
-                    
-                    if res["total_trades"] == 0:
-                        st.warning(f"No trades were triggered for {backtest_ticker} under our strict confirmation rules in the last 2 years.")
-                    else:
-                        col_bt1, col_bt2, col_bt3, col_bt4 = st.columns(4)
-                        with col_bt1:
-                            st.markdown(f'<div class="metric-value">{res["total_trades"]}</div>', unsafe_allow_html=True)
-                            st.markdown('<div class="metric-label">Total Trades</div>', unsafe_allow_html=True)
-                        with col_bt2:
-                            st.markdown(f'<div class="metric-value">{res["win_rate"]:.2%}</div>', unsafe_allow_html=True)
-                            st.markdown('<div class="metric-label">Strategy Win Rate</div>', unsafe_allow_html=True)
-                        with col_bt3:
-                            st.markdown(f'<div class="metric-value">{res["avg_return"]:.2%}</div>', unsafe_allow_html=True)
-                            st.markdown('<div class="metric-label">Average Return per Trade</div>', unsafe_allow_html=True)
-                        with col_bt4:
-                            st.markdown(f'<div class="metric-value">{res["wins"]} W / {res["losses"]} L</div>', unsafe_allow_html=True)
-                            st.markdown('<div class="metric-label">Win/Loss Ratio</div>', unsafe_allow_html=True)
+        # SECTION 3: EXPANDABLE DROPDOWNS FOR LOGS & UTILITIES
+        with st.expander("🧪 2-Year Strategy Backtest Sandbox", expanded=False):
+            st.write("Run historical simulations of the **3-day rigid trading strategy** to verify how a ticker performed over a 2-year window:")
+            
+            default_ticker = watchlist[0] if watchlist else "NVDA"
+            backtest_ticker = st.text_input("Enter Ticker to Backtest", value=default_ticker, key="hub_bt_ticker").strip().upper()
+            
+            bt_btn = st.button("Run Strategy Backtest Simulation", type="primary")
+            if bt_btn:
+                if not backtest_ticker:
+                    st.error("Please enter a valid ticker symbol.")
+                else:
+                    with st.spinner(f"Simulating strategy for {backtest_ticker}..."):
+                        res = backtest.run_backtest(backtest_ticker, period="2y")
+                        
+                        if res["total_trades"] == 0:
+                            st.warning(f"No trades were triggered for {backtest_ticker} under our strict confirmation rules in the last 2 years.")
+                        else:
+                            col_bt1, col_bt2, col_bt3, col_bt4 = st.columns(4)
+                            with col_bt1:
+                                st.markdown(f'<div class="metric-value">{res["total_trades"]}</div>', unsafe_allow_html=True)
+                                st.markdown('<div class="metric-label">Total Trades</div>', unsafe_allow_html=True)
+                            with col_bt2:
+                                st.markdown(f'<div class="metric-value">{res["win_rate"]:.2%}</div>', unsafe_allow_html=True)
+                                st.markdown('<div class="metric-label">Strategy Win Rate</div>', unsafe_allow_html=True)
+                            with col_bt3:
+                                st.markdown(f'<div class="metric-value">{res["avg_return"]:.2%}</div>', unsafe_allow_html=True)
+                                st.markdown('<div class="metric-label">Average Return per Trade</div>', unsafe_allow_html=True)
+                            with col_bt4:
+                                st.markdown(f'<div class="metric-value">{res["wins"]} W / {res["losses"]} L</div>', unsafe_allow_html=True)
+                                st.markdown('<div class="metric-label">Win/Loss Ratio</div>', unsafe_allow_html=True)
+                                
+                            st.write("### Simulation Trade Logs (No Lookahead Bias)")
                             
-                        st.write("### Simulation Trade Logs (No Lookahead Bias)")
-                        
-                        trade_df = pd.DataFrame(res["trades"])
-                        trade_df["entry_price"] = trade_df["entry_price"].map(lambda x: f"${x:.2f}")
-                        trade_df["stop_loss"] = trade_df["stop_loss"].map(lambda x: f"${x:.2f}")
-                        trade_df["profit_target"] = trade_df["profit_target"].map(lambda x: f"${x:.2f}")
-                        trade_df["exit_price"] = trade_df["exit_price"].map(lambda x: f"${x:.2f}")
-                        trade_df["return"] = trade_df["return"].map(lambda x: f"{x:.2%}")
-                        
-                        trade_df.columns = [
-                            "Setup Date", "Pattern", "Score", "Entry Date", "Entry Price", 
-                            "Stop Loss", "Profit Target", "Exit Date", "Exit Price", "Exit Reason", "Return"
-                        ]
-                        st.dataframe(trade_df, use_container_width=True)
-                        
-        st.markdown('</div>', unsafe_allow_html=True)
+                            trade_df = pd.DataFrame(res["trades"])
+                            trade_df["entry_price"] = trade_df["entry_price"].map(lambda x: f"${x:.2f}")
+                            trade_df["stop_loss"] = trade_df["stop_loss"].map(lambda x: f"${x:.2f}")
+                            trade_df["profit_target"] = trade_df["profit_target"].map(lambda x: f"${x:.2f}")
+                            trade_df["exit_price"] = trade_df["exit_price"].map(lambda x: f"${x:.2f}")
+                            trade_df["return"] = trade_df["return"].map(lambda x: f"{x:.2%}")
+                            
+                            trade_df.columns = [
+                                "Setup Date", "Pattern", "Score", "Entry Date", "Entry Price", 
+                                "Stop Loss", "Profit Target", "Exit Date", "Exit Price", "Exit Reason", "Return"
+                            ]
+                            st.dataframe(trade_df, use_container_width=True)
 
         # SECTION 4: EXPANDABLE DROPDOWNS FOR LOGS & UTILITIES
         with st.expander("📄 View Recent Scanner Run Logs", expanded=False):
