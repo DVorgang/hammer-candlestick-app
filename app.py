@@ -1518,35 +1518,69 @@ def render_management_dashboard(subscriber, token):
         with st.expander("📧 Email Delivery Tester & Layout Inspector", expanded=False):
             st.write("Send a test alert email to your address or inspect how Groq AI formats email notifications:")
             
-            test_btn = st.button("📧 Send Test Alert Email Now", use_container_width=True)
-            if test_btn:
-                mock_ticker = watchlist[0] if watchlist else "NVDA"
-                mock_signal = {
-                    "ticker": mock_ticker,
-                    "pattern_type": "Hammer",
-                    "confidence_score": 88.5,
-                    "rsi_14": 28.2,
-                    "vol_mult": 1.95,
-                    "day1_date": "2026-06-05",
-                    "day1_close": 120.0,
-                    "day1_low": 115.0,
-                    "day1_high": 121.0,
-                    "day2_date": "2026-06-08",
-                    "day2_close": 125.0
-                }
-                with st.spinner("Running Groq AI analyst check..."):
-                    ai_analysis = analyst_engine.analyze_signal(mock_signal)
-                if ai_analysis:
-                    mock_signal["ai_analysis"] = ai_analysis
-                email_html = notifier.format_alert_email(mock_signal, token)
-                real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], email_html, mock_ticker)
-                
-                if real_sent:
-                    st.success(f"✅ {status_msg}")
-                else:
-                    st.info(f"ℹ️ {status_msg}")
-                    st.write("**Simulated Email Output:**")
-                    st.components.v1.html(email_html, height=450, scrolling=True)
+            c_test1, c_test2 = st.columns(2)
+            
+            with c_test1:
+                if st.button("📧 Test Technical Reversal Email", use_container_width=True, key="btn_test_tech_email"):
+                    mock_ticker = watchlist[0] if watchlist else "NVDA"
+                    mock_signal = {
+                        "ticker": mock_ticker,
+                        "pattern_type": "Hammer",
+                        "confidence_score": 88.5,
+                        "rsi_14": 28.2,
+                        "vol_mult": 1.95,
+                        "day1_date": "2026-06-05",
+                        "day1_close": 120.0,
+                        "day1_low": 115.0,
+                        "day1_high": 121.0,
+                        "day2_date": "2026-06-08",
+                        "day2_close": 125.0
+                    }
+                    with st.spinner("Running Groq AI analyst check..."):
+                        ai_analysis = analyst_engine.analyze_signal(mock_signal)
+                    if ai_analysis:
+                        mock_signal["ai_analysis"] = ai_analysis
+                    email_html = notifier.format_alert_email(mock_signal, token)
+                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], email_html, mock_ticker)
+                    
+                    if real_sent:
+                        st.success(f"✅ Technical Alert Sent: {status_msg}")
+                    else:
+                        st.info(f"ℹ️ {status_msg}")
+                    st.session_state.inspect_html = ("Technical Reversal Alert", email_html)
+                    st.rerun()
+
+            with c_test2:
+                if st.button("🚀 Test Growth Catalyst Email", use_container_width=True, key="btn_test_growth_email"):
+                    mock_ticker = watchlist[0] if watchlist else "AMD"
+                    with st.spinner(f"Evaluating real-time growth catalysts for {mock_ticker} with Groq AI..."):
+                        g_payload = growth_engine.scan_ticker_for_growth_catalyst(mock_ticker)
+                        g_res = analyst_engine.evaluate_growth_catalyst(g_payload)
+                        if not g_res:
+                            # Mock sample if news fetch is empty
+                            g_res = {
+                                "ticker": mock_ticker,
+                                "growth_score": 8.5,
+                                "catalyst_type": "Partnership & Computing Power Deal",
+                                "headline_summary": f"{mock_ticker} announces strategic $5 Billion AI partnership & multi-year agreement.",
+                                "key_catalysts": ["$5B strategic investment", "Next-gen AI computing power agreement", "Expanded market share"],
+                                "risks": ["High initial capex requirements", "Market competition"],
+                                "plain_english_takeaway": f"Major growth driver for {mock_ticker} over the next 12-24 months."
+                            }
+                    growth_html = notifier.format_growth_catalyst_email(g_res, token)
+                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], growth_html, f"{mock_ticker} Growth Catalyst")
+                    
+                    if real_sent:
+                        st.success(f"✅ Growth Catalyst Alert Sent: {status_msg}")
+                    else:
+                        st.info(f"ℹ️ {status_msg}")
+                    st.session_state.inspect_html = ("Growth Catalyst Alert", growth_html)
+                    st.rerun()
+
+            if "inspect_html" in st.session_state:
+                label, h_content = st.session_state.inspect_html
+                st.write(f"**Live Layout Inspector Preview ({label}):**")
+                st.components.v1.html(h_content, height=450, scrolling=True)
 
         with st.expander("🗑️ Account Settings & Unsubscribe", expanded=False):
             st.write("Erase all alert preferences and delete your watchlist:")
