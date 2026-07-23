@@ -107,3 +107,22 @@
 2026-07-23 00:12:28,837 - WARNING - Growth catalyst evaluation failed for NOK: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01k6e8r39tepwakz8za5dgzx35` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 99034, Requested 2231. Please try again in 18m12.96s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}
 2026-07-23 00:13:12,915 - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
 2026-07-23 00:13:12,916 - WARNING - Growth catalyst evaluation failed for WTI: Error code: 429 - {'error': {'message': 'Rate limit reached for model `llama-3.3-70b-versatile` in organization `org_01k6e8r39tepwakz8za5dgzx35` service tier `on_demand` on tokens per day (TPD): Limit 100000, Used 98983, Requested 2146. Please try again in 16m15.456s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}
+2026-07-23 10:56:55,454 - INFO - Database initialized successfully.
+2026-07-23 10:56:56,564 - INFO - =========================================
+2026-07-23 10:56:56,564 - INFO - Starting Whole-Market AI Growth & Hidden Gem Catalyst Scan (Trigger: manual_cli)
+2026-07-23 10:56:56,564 - INFO - =========================================
+2026-07-23 10:56:56,565 - INFO - Database initialized successfully.
+2026-07-23 10:56:56,567 - INFO - Loaded 1 growth-enabled subscribers. Assembling market-wide candidate list...
+2026-07-23 10:56:57,594 - INFO - Market Growth Screener assembled 157 market-wide breakout candidates.
+2026-07-23 10:56:57,594 - INFO - Scanning Whole-Market Universe across 100 active tickers...
+2026-07-23 10:57:08,273 - ERROR - $BZX: possibly delisted; no price data found  (period=1mo)
+2026-07-23 10:57:58,956 - INFO - Pre-filter complete: 1 candidates have BOTH volume surge + catalyst news (skipped 99 tickers). Evaluating with Groq AI...
+2026-07-23 10:58:02,869 - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2026-07-23 10:58:02,876 - INFO - Growth-OTLY evaluation succeeded via Groq-70B (llama-3.3-70b-versatile)
+2026-07-23 10:58:02,876 - INFO - 🚀 Whole-Market Growth Catalyst DISCOVERED: OTLY (Earnings Beat) - Score: 8.5/10
+2026-07-23 10:58:02,877 - INFO - Attempting to send real SMTP email to devin.vorgang@gmail.com via smtp.gmail.com...
+2026-07-23 10:58:04,064 - INFO - Real SMTP email delivered to devin.vorgang@gmail.com successfully.
+2026-07-23 10:58:04,065 - INFO - Market Growth email status for devin.vorgang@gmail.com / OTLY: Email successfully delivered to your inbox via SMTP.
+2026-07-23 10:58:04,392 - INFO - =========================================
+2026-07-23 10:58:04,392 - INFO - Whole-Market Growth Scan completed in 67.65s. Evaluated 1 AI candidates from 100 tickers. Discovered 1 high-growth setup(s).
+2026-07-23 10:58:04,392 - INFO - =========================================

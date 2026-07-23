@@ -1094,14 +1094,17 @@ def _render_stock_body(ticker, subscriber, token):
                 ]
         st.markdown('</div>', unsafe_allow_html=True)
 
-def render_stock_detail_page(ticker, subscriber, token):
+def render_stock_detail_page(ticker, subscriber, token, show_back_button=True):
     # Top Action Navigation & Refresh Bar
-    nav_col1, nav_col2, nav_col3, nav_col4 = st.columns([2, 2, 3, 2])
-    with nav_col1:
-        if st.button("⬅️ Back to Control Panel", use_container_width=True):
-            st.session_state.selected_ticker_detail = None
-            st.rerun()
-            
+    if show_back_button:
+        nav_col1, nav_col2, nav_col3, nav_col4 = st.columns([2, 2, 3, 2])
+        with nav_col1:
+            if st.button("⬅️ Back to Control Panel", use_container_width=True):
+                st.session_state.selected_ticker_detail = None
+                st.rerun()
+    else:
+        nav_col2, nav_col3, nav_col4 = st.columns([2, 3, 2])
+
     with nav_col2:
         if st.button("🔄 Refresh Quote Now", use_container_width=True, key=f"btn_manual_refresh_{ticker}"):
             st.toast(f"Refreshed live data for {ticker}!", icon="🔄")
@@ -1120,15 +1123,16 @@ def render_stock_detail_page(ticker, subscriber, token):
     with nav_col4:
         if subscriber:
             if in_watchlist:
-                if st.button("🗑️ Remove Watchlist", key="btn_remove_detail", use_container_width=True):
+                if st.button("🗑️ Remove Watchlist", key=f"btn_remove_detail_{ticker}", use_container_width=True):
                     database.remove_watchlist_ticker(subscriber["id"], ticker)
                     st.toast(f"Removed {ticker} from watchlist.", icon="🗑️")
                     st.rerun()
             else:
-                if st.button("➕ Add Watchlist", key="btn_add_detail", type="primary", use_container_width=True):
+                if st.button("➕ Add Watchlist", key=f"btn_add_detail_{ticker}", type="primary", use_container_width=True):
                     database.add_watchlist_ticker(subscriber["id"], ticker)
                     st.toast(f"Added {ticker} to watchlist!", icon="⭐")
                     st.rerun()
+
 
     # Route auto-refresh interval based on dropdown selection
     if "15s" in refresh_mode:
@@ -1229,9 +1233,10 @@ def render_management_dashboard(subscriber, token):
         </div>
         """, unsafe_allow_html=True)
 
-    # Main Dashboard Tabs (Clean 2-Tab Layout)
-    tab_watchlist, tab_hub = st.tabs([
+    # Main Dashboard Tabs (Clean 3-Tab Layout)
+    tab_watchlist, tab_search, tab_hub = st.tabs([
         "📋 Watchlist", 
+        "🔍 Stock Search & Deep-Dive",
         "⚡ Scanner, Alerts & Backtesting"
     ])
     
@@ -1242,17 +1247,29 @@ def render_management_dashboard(subscriber, token):
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown('<div class="card-title">Manage Watchlist</div>', unsafe_allow_html=True)
         
-        # Universal Free-Text Ticker Input (Supports ANY ticker: SIRI, AMD, NVDA, etc.)
-        with st.form("add_ticker_form_universal", clear_on_submit=True):
-            fcol1, fcol2 = st.columns([4, 1])
+        # Universal Free-Text Ticker Input with Dual Action Buttons (Analyze or Add)
+        with st.form("add_ticker_form_universal", clear_on_submit=False):
+            fcol1, fcol2, fcol3 = st.columns([3, 1, 1])
             with fcol1:
                 new_ticker_input = st.text_input(
                     "Add Ticker Symbol",
                     placeholder="Type ANY ticker symbol (e.g. SIRI, AMD, NVDA, PLTR, BABA)...",
-                    label_visibility="collapsed"
+                    label_visibility="collapsed",
+                    key="wl_form_ticker_input"
                 ).strip().upper()
             with fcol2:
+                analyze_btn = st.form_submit_button("🔍 Analyze", use_container_width=True)
+            with fcol3:
                 add_btn = st.form_submit_button("➕ Add Stock", type="primary", use_container_width=True)
+
+            if analyze_btn:
+                target_symbol = new_ticker_input.split(" ")[0].split("-")[0].strip().upper()
+                if not target_symbol:
+                    st.error("Please enter a ticker symbol to analyze.")
+                else:
+                    st.session_state.selected_ticker_detail = target_symbol
+                    st.session_state.search_tab_ticker = None
+                    st.rerun()
 
             if add_btn:
                 target_symbol = new_ticker_input.split(" ")[0].split("-")[0].strip().upper()
@@ -1309,7 +1326,9 @@ def render_management_dashboard(subscriber, token):
                         with btn_col1:
                             if st.button(f"Open {ticker} Analysis Page", key=f"view_card_{ticker}", type="primary", use_container_width=True):
                                 st.session_state.selected_ticker_detail = ticker
+                                st.session_state.search_tab_ticker = None
                                 st.rerun()
+
                         with btn_col2:
                             if st.button("🗑️", key=f"del_card_{ticker}", use_container_width=True):
                                 database.remove_watchlist_ticker(subscriber["id"], ticker)
@@ -1319,9 +1338,58 @@ def render_management_dashboard(subscriber, token):
         st.markdown('</div>', unsafe_allow_html=True)
 
     # ----------------------------------------------------
-    # TAB 2: SCANNER, ALERTS & BACKTESTING
+    # TAB 2: INSTANT STOCK SEARCH & DEEP-DIVE ANALYSIS
+    # ----------------------------------------------------
+    with tab_search:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">🔍 Search Any Stock for Instant Deep-Dive Analysis</div>', unsafe_allow_html=True)
+        st.write("Perform comprehensive financial, indicator, and technical backtest analysis on any US stock ticker instantly (no watchlist required):")
+        
+        with st.form("search_ticker_form_tab", clear_on_submit=True):
+            scol1, scol2, scol3 = st.columns([3, 1, 1])
+            with scol1:
+                search_symbol_input = st.text_input(
+                    "Search Ticker Symbol",
+                    placeholder="Type ANY ticker symbol (e.g. NVDA, AMD, PLTR, BABA, TSLA, AAPL)...",
+                    label_visibility="collapsed",
+                    key="search_tab_ticker_input_field"
+                ).strip().upper()
+            with scol2:
+                search_submit = st.form_submit_button("🔍 Search & Analyze", type="primary", use_container_width=True)
+            with scol3:
+                clear_submit = st.form_submit_button("❌ Clear Search", use_container_width=True)
+
+            if search_submit:
+                clean_search = search_symbol_input.split(" ")[0].split("-")[0].strip().upper()
+                if not clean_search:
+                    st.error("Please enter a ticker symbol to search.")
+                else:
+                    st.session_state.search_tab_ticker = clean_search
+                    st.rerun()
+
+            if clear_submit:
+                st.session_state.search_tab_ticker = None
+                st.rerun()
+
+
+
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('<div style="margin-top: 15px;"></div>', unsafe_allow_html=True)
+
+        active_search_ticker = st.session_state.get("search_tab_ticker")
+        if not active_search_ticker:
+            st.info("💡 Enter any ticker symbol above (e.g. `NVDA`, `AMD`, `PLTR`, `AAPL`) and click 'Search & Analyze' to open its interactive analysis page.")
+        else:
+            # Render Full Stock Detail View (without redundant Back button)
+            render_stock_detail_page(active_search_ticker, subscriber, token, show_back_button=False)
+
+
+
+    # ----------------------------------------------------
+    # TAB 3: SCANNER, ALERTS & BACKTESTING
     # ----------------------------------------------------
     with tab_hub:
+
 
 
         # SECTION 1: AUTOMATED SCANNER & SCHEDULER CONTROL
@@ -1637,20 +1705,33 @@ def render_management_dashboard(subscriber, token):
             with c_test1:
                 if st.button("📧 Test Technical Reversal Email", use_container_width=True, key="btn_test_tech_email"):
                     mock_ticker = watchlist[0] if watchlist else "NVDA"
-                    mock_signal = {
-                        "ticker": mock_ticker,
-                        "pattern_type": "Hammer",
-                        "confidence_score": 88.5,
-                        "rsi_14": 28.2,
-                        "vol_mult": 1.95,
-                        "day1_date": "2026-06-05",
-                        "day1_close": 120.0,
-                        "day1_low": 115.0,
-                        "day1_high": 121.0,
-                        "day2_date": "2026-06-08",
-                        "day2_close": 125.0
-                    }
-                    with st.spinner(f"Running AI analyst check via {selected_model_label}..."):
+                    with st.spinner(f"Fetching real market quote for {mock_ticker} & running AI check via {selected_model_label}..."):
+                        try:
+                            hist = yf.Ticker(mock_ticker).history(period="1mo")
+                            if not hist.empty:
+                                cur_price = float(hist['Close'].iloc[-1])
+                                day1_l = round(cur_price * 0.96, 2)
+                                day1_h = round(cur_price * 1.01, 2)
+                                day1_c = round(cur_price * 0.97, 2)
+                                day2_c = round(cur_price, 2)
+                            else:
+                                cur_price, day1_l, day1_h, day1_c, day2_c = 125.0, 115.0, 126.0, 120.0, 125.0
+                        except Exception:
+                            cur_price, day1_l, day1_h, day1_c, day2_c = 125.0, 115.0, 126.0, 120.0, 125.0
+
+                        mock_signal = {
+                            "ticker": mock_ticker,
+                            "pattern_type": "Hammer",
+                            "confidence_score": 88.5,
+                            "rsi_14": 28.2,
+                            "vol_mult": 1.95,
+                            "day1_date": (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d"),
+                            "day1_close": day1_c,
+                            "day1_low": day1_l,
+                            "day1_high": day1_h,
+                            "day2_date": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"),
+                            "day2_close": day2_c
+                        }
                         ai_analysis = analyst_engine.analyze_signal(mock_signal, forced_model=forced_model_arg)
                     if ai_analysis:
                         mock_signal["ai_analysis"] = ai_analysis
@@ -1659,11 +1740,12 @@ def render_management_dashboard(subscriber, token):
                     
                     model_tag = (ai_analysis.get("ai_model_used") if ai_analysis else None) or "AI"
                     if real_sent:
-                        st.success(f"✅ Technical Alert Sent via {model_tag}: {status_msg}")
+                        st.success(f"✅ Technical Alert Sent for {mock_ticker} (${day2_c}) via {model_tag}: {status_msg}")
                     else:
                         st.info(f"ℹ️ [{model_tag}] {status_msg}")
                     st.session_state.inspect_html = (f"Technical Reversal Alert ({model_tag})", email_html)
                     st.rerun()
+
 
             with c_test2:
                 if st.button("🚀 Test Growth Catalyst Email", use_container_width=True, key="btn_test_growth_email"):

@@ -39,6 +39,22 @@ The application combines **algorithmic technical pattern detection** with **whol
 * **Technical Trade Alerts**: Contains setup confidence scores, trade blueprint cards (Entry, Stop Loss, Target), risk math, and AI technical summaries.
 * **Growth Catalyst Alerts**: Includes live stock price, volume surge multiplier, AI catalyst rating, key drivers, risks, and clickable news headline links.
 
+### 7. 🧠 Post-Trade Outcome Tracker & Self-Learning Feedback Loop
+* **Automated Outcome Resolver**: Evaluates pending alerts against post-alert daily price history over a 10-bar horizon to resolve outcomes (`🟢 WIN (Target Hit)`, `🔴 LOSS (Stop Hit)`, `⏳ TIMEOUT`).
+* **Dynamic Win-Rate Score Calibration**: Automatically boosts pattern confidence scores by up to **+15 points** for high-performing setups ($\ge 70\%$ win rate) or penalizes scores by up to **-20 points** for low-performing setups ($\le 50\%$ win rate).
+* **AI Track Record Injection**: Injects empirical stock win rates directly into Groq & Gemma prompts for context-aware email takeaways.
+* **Outcome Performance Audit Matrix**: Live web dashboard table presenting resolved signals, historical win rates, net returns, and clean N/A data formatting.
+
+### 8. 🔍 Instant Stock Search & Deep-Dive Analysis Tab
+* **3-Tab Control Panel Navigation**: Clean 3-tab dashboard architecture (`📋 Watchlist`, `🔍 Stock Search & Deep-Dive`, `⚡ Scanner, Alerts & Backtesting`).
+* **Any Stock Lookup**: Dedicated search tab (`🔍 Stock Search & Deep-Dive`) allows instant financial, indicator, pattern signal, and strategy backtest analysis on any US stock ticker without requiring permanent watchlist addition.
+* **Dual Action Buttons**: Quick-action bar in the Watchlist tab provides side-by-side `🔍 Analyze` and `➕ Add Stock` buttons.
+* **Form Reset & Clear Search**: Form features `clear_on_submit=True` and a `❌ Clear Search` button to instantly wipe the text box and reset search results.
+* **Smart Back Button Hiding**: When viewing stock details inside the Search Tab, the redundant `← Back to Control Panel` button is automatically concealed to keep the navigation bar clean.
+
+
+
+
 ---
 
 ## 📐 3-Day Validation Cycle (Strategy Logic)
