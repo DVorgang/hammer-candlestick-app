@@ -169,3 +169,62 @@ def _analyze_with_groq(model, instructions, prompt):
     except Exception as exc:
         logging.warning(f"Groq analyst call failed: {exc}")
         return None
+
+def evaluate_growth_catalyst(growth_payload):
+    """
+    Evaluates news headlines & volume multiplier to rate Growth Potential (1-10) using Groq Llama 3.3-70B.
+    """
+    if not is_ai_enabled():
+        return None
+
+    ticker = growth_payload.get("ticker", "UNKNOWN")
+    vol_mult = growth_payload.get("vol_mult", 1.0)
+    news = growth_payload.get("news", [])
+    
+    if not news:
+        return None
+
+    instructions = (
+        "You are a Wall Street Fundamental Growth Analyst. Your job is to analyze real-time company news headlines "
+        "and volume surges to determine if a stock has a high-growth catalyst (such as a major contract win, "
+        "strategic partnership, earnings beat, FDA approval, or product launch). "
+        "Rate the growth potential on a scale of 1.0 to 10.0. "
+        "Return ONLY JSON with keys: growth_score (float 1-10), catalyst_type (string, e.g. Contract Win, Partnership, Earnings Beat, FDA Approval, General News), "
+        "headline_summary (string), key_catalysts (array of strings), risks (array of strings), plain_english_takeaway (string)."
+    )
+
+    prompt = f"""
+    Analyze the growth catalyst potential for ticker {ticker}:
+    - Trading Volume Multiplier: {vol_mult:.2f}x (vs 20-Day Average Volume)
+    - Recent Headlines:
+    {json.dumps(news, indent=2)}
+
+    Evaluate if this is a high-growth fundamental catalyst (contract, earnings, partnership, milestone) or just minor chatter.
+    """
+
+    provider = os.environ.get("AI_PROVIDER", "groq").lower()
+    model = os.environ.get("AI_ANALYST_MODEL") or ("llama-3.3-70b-versatile" if provider == "groq" else "gpt-4o-mini")
+
+    try:
+        from openai import OpenAI
+        api_key = os.environ.get("GROQ_API_KEY") if provider == "groq" else os.environ.get("OPENAI_API_KEY")
+        base_url = "https://api.groq.com/openai/v1" if provider == "groq" else None
+        
+        client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": instructions},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_completion_tokens=700,
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content
+        data = _extract_json(content)
+        data["growth_score"] = float(data.get("growth_score") or 5.0)
+        return data
+    except Exception as e:
+        logging.warning(f"Growth catalyst evaluation failed for {ticker}: {e}")
+        return None

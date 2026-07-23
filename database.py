@@ -95,13 +95,15 @@ def init_db():
             # Ensure default row 1 exists in scheduler_state
             conn.execute("INSERT OR IGNORE INTO scheduler_state (id, is_active, start_timestamp) VALUES (1, 0, NULL);")
             
-            # Check if columns otp_code and otp_expiry exist, if not add them
+            # Check if columns otp_code, otp_expiry, and wants_growth exist, if not add them
             cursor = conn.execute("PRAGMA table_info(subscribers);")
             columns = [row["name"] for row in cursor.fetchall()]
             if "otp_code" not in columns:
                 conn.execute("ALTER TABLE subscribers ADD COLUMN otp_code TEXT;")
             if "otp_expiry" not in columns:
                 conn.execute("ALTER TABLE subscribers ADD COLUMN otp_expiry TEXT;")
+            if "wants_growth" not in columns:
+                conn.execute("ALTER TABLE subscribers ADD COLUMN wants_growth INTEGER DEFAULT 1;")
                 
         logging.info("Database initialized successfully.")
     except sqlite3.Error as e:
@@ -182,7 +184,7 @@ def get_subscriber_by_email(email):
     finally:
         conn.close()
 
-def update_subscriber_preferences(token, wants_buys, wants_risks, wants_sells):
+def update_subscriber_preferences(token, wants_buys, wants_risks, wants_sells, wants_growth=1):
     """
     Updates the email alert preferences for a subscriber.
     """
@@ -192,10 +194,10 @@ def update_subscriber_preferences(token, wants_buys, wants_risks, wants_sells):
             conn.execute(
                 """
                 UPDATE subscribers
-                SET wants_buys = ?, wants_risks = ?, wants_sells = ?
+                SET wants_buys = ?, wants_risks = ?, wants_sells = ?, wants_growth = ?
                 WHERE management_token = ?
                 """,
-                (int(wants_buys), int(wants_risks), int(wants_sells), token)
+                (int(wants_buys), int(wants_risks), int(wants_sells), int(wants_growth), token)
             )
         return True
     except sqlite3.Error as e:

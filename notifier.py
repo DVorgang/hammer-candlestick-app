@@ -224,6 +224,61 @@ def format_alert_email(signal, token, base_url="http://localhost:8501"):
             <a href="{manage_url}" style="color: #3182ce; text-decoration: underline; font-weight: 600;">Manage Watchlist</a> 
             &nbsp;|&nbsp; 
             <a href="{unsubscribe_url}" style="color: #e53e3e; text-decoration: underline; font-weight: 600;">Unsubscribe Completely</a>
+    </div>
+</div>
+"""
+    return html_content
+
+def format_growth_catalyst_email(growth_res, token, base_url="http://localhost:8501"):
+    """
+    Formats a responsive HTML email alert for high-growth news & volume catalyst setups.
+    """
+    ticker = html.escape(str(growth_res.get("ticker", "TICKER")))
+    score = float(growth_res.get("growth_score") or 8.0)
+    cat_type = html.escape(str(growth_res.get("catalyst_type", "Growth Catalyst")))
+    summary = html.escape(str(growth_res.get("headline_summary", "")))
+    takeaway = html.escape(str(growth_res.get("plain_english_takeaway", "")))
+    vol_mult = float(growth_res.get("vol_mult") or 1.0)
+    
+    key_cats = "".join(f"<li>{html.escape(str(item))}</li>" for item in (growth_res.get("key_catalysts") or []))
+    risks = "".join(f"<li>{html.escape(str(item))}</li>" for item in (growth_res.get("risks") or []))
+
+    manage_url = f"{base_url}/?token={token}"
+    unsubscribe_url = f"{base_url}/?token={token}&unsubscribe=true"
+
+    return f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);">
+    
+    <!-- Top Header & Banner -->
+    <div style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); padding: 24px; border-radius: 8px; text-align: center; margin-bottom: 24px; color: #ffffff;">
+        <span style="display: inline-block; background-color: #818cf8; color: #0f172a; font-size: 11px; font-weight: 800; text-transform: uppercase; padding: 4px 12px; border-radius: 9999px; letter-spacing: 0.05em; margin-bottom: 8px;">
+            🚀 Growth Catalyst Alert
+        </span>
+        <h1 style="margin: 0; font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: -0.02em;">{ticker} — {cat_type}</h1>
+        <p style="margin: 6px 0 0 0; font-size: 14px; color: #c7d2fe;">Volume Surge: {vol_mult:.2f}x 20-Day Average | Groq AI Score: {score:.1f} / 10</p>
+    </div>
+    
+    <!-- Growth Summary Card -->
+    <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+        <h3 style="margin-top: 0; margin-bottom: 8px; font-size: 16px; font-weight: 700; color: #166534;">Groq AI Fundamental Catalyst Overview</h3>
+        <p style="margin: 0 0 12px 0; font-size: 14px; line-height: 1.5; color: #14532d; font-weight: 600;">{summary}</p>
+        
+        <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 700; color: #166534;">Key Growth Drivers:</p>
+        <ul style="margin: 0 0 12px 0; padding-left: 20px; font-size: 13px; color: #15803d; line-height: 1.5;">{key_cats}</ul>
+        
+        <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 700; color: #991b1b;">Risks & Considerations:</p>
+        <ul style="margin: 0 0 12px 0; padding-left: 20px; font-size: 13px; color: #b91c1c; line-height: 1.5;">{risks}</ul>
+        
+        <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #166534;"><strong>Plain-English Takeaway:</strong> {takeaway}</p>
+    </div>
+    
+    <!-- Footer -->
+    <div style="border-top: 1px solid #edf2f7; padding-top: 16px; text-align: center; font-size: 12px; color: #a0aec0;">
+        <p style="margin-bottom: 8px;">You received this Growth Catalyst alert because you subscribed to <strong>{ticker}</strong> monitoring.</p>
+        <p style="margin: 0;">
+            <a href="{manage_url}" style="color: #4f46e5; text-decoration: underline; font-weight: 600;">Manage Watchlist</a> 
+            &nbsp;|&nbsp; 
+            <a href="{unsubscribe_url}" style="color: #e53e3e; text-decoration: underline; font-weight: 600;">Unsubscribe Completely</a>
         </p>
     </div>
 </div>

@@ -26,12 +26,14 @@ import pattern_engine
 import notifier
 import analyst_engine
 
+import growth_engine
+
 import time
 
 def run_daily_scan(days_to_scan=3, trigger_type="manual"):
     start_time = time.time()
     logging.info("=========================================")
-    logging.info(f"Starting Daily Candlestick Sentinel Scan (Trigger: {trigger_type})")
+    logging.info(f"Starting Daily Candlestick & Growth Sentinel Scan (Trigger: {trigger_type})")
     logging.info("=========================================")
     
     # 1. Initialize database
@@ -49,6 +51,7 @@ def run_daily_scan(days_to_scan=3, trigger_type="manual"):
     
     # Track metrics
     ticker_cache = {}
+    growth_cache = {}
     total_signals_found = 0
     total_alerts_sent = 0
     
@@ -61,6 +64,7 @@ def run_daily_scan(days_to_scan=3, trigger_type="manual"):
         wants_buys = bool(sub["wants_buys"])
         wants_risks = bool(sub["wants_risks"])
         wants_sells = bool(sub["wants_sells"])
+        wants_growth = bool(sub.get("wants_growth", 1))
         
         watchlist = database.get_watchlist(sub_id)
         if not watchlist:
@@ -70,7 +74,7 @@ def run_daily_scan(days_to_scan=3, trigger_type="manual"):
         logging.info(f"Processing subscriber {email} (Watchlist: {watchlist})...")
         
         for ticker in watchlist:
-            # Check cache to avoid hitting Yahoo Finance API repeatedly for the same ticker
+            # --- 1. Candlestick Pattern Scan ---
             if ticker not in ticker_cache:
                 try:
                     signals = pattern_engine.scan_ticker_for_signals(ticker, days_to_scan=days_to_scan)
@@ -81,16 +85,14 @@ def run_daily_scan(days_to_scan=3, trigger_type="manual"):
                     
             signals = ticker_cache[ticker]
             
-            # Filter and process signals
             for signal in signals:
                 if not signal["confirmed"]:
-                    continue # Discard unconfirmed patterns
+                    continue
                     
                 total_signals_found += 1
                 pattern_type = signal["pattern_type"]
                 score = signal["confidence_score"]
                 
-                # Check preferences
                 send_alert = False
                 alert_type = ""
                 
@@ -109,18 +111,16 @@ def run_daily_scan(days_to_scan=3, trigger_type="manual"):
                             alert_type = "Risk Warning"
                             
                 if send_alert:
-                    logging.info(f"🔥 Signal MATCHED for {email}: {ticker} {pattern_type} (Score: {score:.1f}) -> Preparing {alert_type} email.")
+                    logging.info(f"🔥 Pattern MATCHED for {email}: {ticker} {pattern_type} (Score: {score:.1f}) -> Preparing {alert_type} email.")
                     
                     if database.has_alert_been_sent(sub_id, signal):
-                        logging.info(f"Skipping duplicate alert for {email}: {ticker} {pattern_type} from {str(signal['day1_date'])[:10]} confirmed {str(signal['day2_date'])[:10]}.")
+                        logging.info(f"Skipping duplicate alert for {email}: {ticker} {pattern_type}.")
                         continue
 
-                    # Estimate Day 3 opening price as latest close/estimation
                     entry_est = signal.get("day3_open") or signal.get("day2_close")
                     day1_low = signal["day1_low"]
                     day1_high = signal["day1_high"]
                     
-                    # Final safety check: gap risk validation
                     invalidation_gap = False
                     if pattern_type == "Hammer" and entry_est <= day1_low:
                         invalidation_gap = True
@@ -128,27 +128,51 @@ def run_daily_scan(days_to_scan=3, trigger_type="manual"):
                         invalidation_gap = True
                         
                     if invalidation_gap:
-                        logging.warning(f"❌ Alert aborted: Ticker {ticker} opened past invalidation level (Gap risk).")
+                        logging.warning(f"❌ Alert aborted: Ticker {ticker} opened past invalidation level.")
                         continue
                         
                     ai_analysis = analyst_engine.analyze_signal(signal)
                     if ai_analysis:
                         signal["ai_analysis"] = ai_analysis
-                        logging.info(f"AI analyst notes added for {ticker}: {ai_analysis.get('status')}")
-                    else:
-                        logging.info(f"AI analyst notes skipped for {ticker}.")
 
-                    # Format HTML email
                     html_body = notifier.format_alert_email(signal, token)
-                    
-                    # Deliver
                     sent_real_email, status_msg = notifier.simulate_send_alert(email, html_body, ticker)
                     logging.info(f"Delivery status for {email} / {ticker}: {status_msg}")
                     if sent_real_email:
                         database.record_sent_alert(sub_id, signal)
                         total_alerts_sent += 1
-                else:
-                    logging.debug(f"Signal detected for {ticker} but subscriber {email} has opted out of {pattern_type} alert preferences.")
+
+            # --- 2. Growth Catalyst Scan ---
+            if wants_growth:
+                if ticker not in growth_cache:
+                    try:
+                        g_payload = growth_engine.scan_ticker_for_growth_catalyst(ticker)
+                        g_res = analyst_engine.evaluate_growth_catalyst(g_payload)
+                        growth_cache[ticker] = g_res
+                    except Exception as e:
+                        logging.error(f"Error checking growth catalyst for {ticker}: {e}")
+                        growth_cache[ticker] = None
+
+                growth_eval = growth_cache[ticker]
+                if growth_eval and float(growth_eval.get("growth_score") or 0.0) >= 7.0:
+                    score = float(growth_eval.get("growth_score"))
+                    cat_type = growth_eval.get("catalyst_type", "Growth Catalyst")
+                    logging.info(f"🚀 Growth Catalyst MATCHED for {email}: {ticker} {cat_type} (Score: {score:.1f}/10)")
+                    
+                    # Create mock signal structure for duplicate prevention tracking
+                    g_signal = {
+                        "ticker": ticker,
+                        "pattern_type": f"Growth_{cat_type}",
+                        "day1_date": str(datetime.now())[:10],
+                        "day2_date": str(datetime.now())[:10]
+                    }
+                    if not database.has_alert_been_sent(sub_id, g_signal):
+                        g_html = notifier.format_growth_catalyst_email(growth_eval, token)
+                        sent_real_email, status_msg = notifier.simulate_send_alert(email, g_html, f"{ticker} Growth Catalyst")
+                        logging.info(f"Growth email delivery status for {email} / {ticker}: {status_msg}")
+                        if sent_real_email:
+                            database.record_sent_alert(sub_id, g_signal)
+                            total_alerts_sent += 1
                     
     duration = time.time() - start_time
     tickers_count = len(ticker_cache)

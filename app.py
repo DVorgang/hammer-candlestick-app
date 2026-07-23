@@ -1334,6 +1334,14 @@ def render_management_dashboard(subscriber, token):
 
         st.markdown('</div>', unsafe_allow_html=True)
 
+        def on_pref_change():
+            w_buys = st.session_state.get("wants_buys_check", True)
+            w_risks = st.session_state.get("wants_risks_check", True)
+            w_sells = st.session_state.get("wants_sells_check", True)
+            w_growth = st.session_state.get("wants_growth_check", True)
+            database.update_subscriber_preferences(token, w_buys, w_risks, w_sells, w_growth)
+            st.session_state.pending_toast = "Alert Channel preferences updated successfully."
+
         # SECTION 2: ALERT NOTIFICATION PREFERENCES
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown('<div class="card-title">🔔 Alert Notification Channel Preferences</div>', unsafe_allow_html=True)
@@ -1354,6 +1362,12 @@ def render_management_dashboard(subscriber, token):
             "🔴 High Risk Sell Warnings (High-Volume Hanging Man)",
             value=bool(subscriber["wants_sells"]),
             key="wants_sells_check",
+            on_change=on_pref_change
+        )
+        st.checkbox(
+            "🚀 Growth & Contract Catalysts (High Volume + Groq AI Growth Score >= 7/10)",
+            value=bool(subscriber.get("wants_growth", 1)),
+            key="wants_growth_check",
             on_change=on_pref_change
         )
         st.markdown('<p style="font-size: 13px; color: #94a3b8; margin-top: 10px;">Preferences update automatically in real-time when toggled.</p>', unsafe_allow_html=True)
