@@ -378,6 +378,14 @@ def format_exchange_name(info):
         return short_code.upper()
     return "NASDAQ"
 
+@st.cache_data(ttl=3600)
+def get_company_short_name(ticker):
+    try:
+        info = yf.Ticker(ticker).info or {}
+        return info.get("shortName") or info.get("longName") or ticker
+    except Exception:
+        return ticker
+
 def render_plotly_stock_chart(ticker, timeframe, chart_style):
     tf_map = {
         "1D": ("1d", "5m"),
@@ -987,12 +995,16 @@ def render_management_dashboard(subscriber, token):
                 grid_cols = st.columns(cols_per_row)
                 
                 for idx, ticker in enumerate(row_tickers):
+                    c_name = get_company_short_name(ticker)
                     with grid_cols[idx]:
                         st.markdown(f"""
                         <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 14px; margin-bottom: 12px;">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <span style="font-size: 1.3rem; font-weight: 800; color: #ffffff;">📈 {ticker}</span>
-                                <span style="color: #94a3b8; font-size: 0.8rem; font-weight: 600;">US Equity</span>
+                            <div style="display: flex; justify-content: space-between; align-items: center; overflow: hidden; white-space: nowrap;">
+                                <div style="overflow: hidden; text-overflow: ellipsis;">
+                                    <span style="font-size: 1.25rem; font-weight: 800; color: #ffffff;">📈 {ticker}</span>
+                                    <span style="color: #94a3b8; font-size: 0.9rem; font-weight: 600; margin-left: 6px;">· {c_name}</span>
+                                </div>
+                                <span style="color: #64748b; font-size: 0.75rem; font-weight: 600; margin-left: 8px;">US Equity</span>
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
