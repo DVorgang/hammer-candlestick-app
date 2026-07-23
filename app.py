@@ -1069,6 +1069,12 @@ def render_management_dashboard(subscriber, token):
 
     watchlist = database.get_watchlist(subscriber["id"])
 
+    # Render pending notification banner if present
+    if st.session_state.get("pending_toast"):
+        st.success(f"✅ {st.session_state.pending_toast}")
+        st.toast(st.session_state.pending_toast, icon="⭐")
+        st.session_state.pending_toast = None
+
     # 1. Clean Top Header
     st.markdown(f"""
     <div style="margin-top: 5px; margin-bottom: 20px;">
@@ -1143,7 +1149,7 @@ def render_management_dashboard(subscriber, token):
                 else:
                     success = database.add_watchlist_ticker(subscriber["id"], target_symbol)
                     if success:
-                        st.toast(f"Added {target_symbol} to watchlist!", icon="⭐")
+                        st.session_state.pending_toast = f"Added {target_symbol} to your Watchlist!"
                         st.rerun()
                     else:
                         st.error("Failed to add ticker.")
@@ -1158,6 +1164,7 @@ def render_management_dashboard(subscriber, token):
                 with col:
                     if st.button(f"➕ Add {sugg}", key=f"sugg_{sugg}", use_container_width=True):
                         database.add_watchlist_ticker(subscriber["id"], sugg)
+                        st.session_state.pending_toast = f"Added {sugg} to your Watchlist!"
                         st.rerun()
         else:
             st.write("Click any stock card to open full financial analysis, or click 🗑️ to remove:")
@@ -1192,7 +1199,7 @@ def render_management_dashboard(subscriber, token):
                         with btn_col2:
                             if st.button("🗑️", key=f"del_card_{ticker}", use_container_width=True):
                                 database.remove_watchlist_ticker(subscriber["id"], ticker)
-                                st.toast(f"Removed {ticker} from watchlist.", icon="🗑️")
+                                st.session_state.pending_toast = f"Removed {ticker} from your Watchlist."
                                 st.rerun()
                                 
         st.markdown('</div>', unsafe_allow_html=True)
