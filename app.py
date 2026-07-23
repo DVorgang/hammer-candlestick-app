@@ -427,6 +427,18 @@ def format_exchange_name(info):
         return short_code.upper()
     return "NASDAQ"
 
+@st.cache_data(ttl=86400)
+def get_company_logo_url(ticker):
+    try:
+        info = yf.Ticker(ticker).info or {}
+        website = info.get("website", "")
+        if website:
+            domain = website.replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0]
+            return f"https://www.google.com/s2/favicons?domain={domain}&sz=64"
+    except Exception:
+        pass
+    return f"https://financialmodelingprep.com/image-stock/{ticker}.png"
+
 @st.cache_data(ttl=3600)
 def get_company_short_name(ticker):
     try:
@@ -1149,16 +1161,17 @@ def render_management_dashboard(subscriber, token):
             for i in range(0, len(watchlist), cols_per_row):
                 row_tickers = watchlist[i:i + cols_per_row]
                 grid_cols = st.columns(cols_per_row)
-                
                 for idx, ticker in enumerate(row_tickers):
                     c_name = get_company_short_name(ticker)
+                    c_logo = get_company_logo_url(ticker)
                     with grid_cols[idx]:
                         st.markdown(f"""
                         <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 14px; margin-bottom: 12px;">
                             <div style="display: flex; justify-content: space-between; align-items: center; overflow: hidden; white-space: nowrap;">
-                                <div style="overflow: hidden; text-overflow: ellipsis;">
-                                    <span style="font-size: 1.25rem; font-weight: 800; color: #ffffff;">📈 {ticker}</span>
-                                    <span style="color: #94a3b8; font-size: 0.9rem; font-weight: 600; margin-left: 6px;">· {c_name}</span>
+                                <div style="display: flex; align-items: center; overflow: hidden; text-overflow: ellipsis;">
+                                    <img src="{c_logo}" style="width: 22px; height: 22px; border-radius: 4px; object-fit: contain; margin-right: 8px; background-color: #0f172a; padding: 2px;">
+                                    <span style="font-size: 1.2rem; font-weight: 800; color: #ffffff;">{ticker}</span>
+                                    <span style="color: #94a3b8; font-size: 0.9rem; font-weight: 600; margin-left: 6px; overflow: hidden; text-overflow: ellipsis;">· {c_name}</span>
                                 </div>
                                 <span style="color: #64748b; font-size: 0.75rem; font-weight: 600; margin-left: 8px;">US Equity</span>
                             </div>
