@@ -756,109 +756,169 @@ def render_management_dashboard(subscriber, token):
         st.write(f"Logged in as:")
         st.markdown(f"**{subscriber['email']}**")
         st.write("---")
-        # Personal access link explanation
         st.write("🔗 **Personal Access Link**")
         st.markdown(f"<code style='font-size: 11px; word-break: break-all;'>http://localhost:8501/?token={token}</code>", unsafe_allow_html=True)
-        st.write("Use this link to bypass the OTP login screen on this device in the future.")
+        st.write("Use this link to bypass the OTP login screen on this device.")
         st.write("---")
         st.button("🔓 Sign Out / Logout", on_click=logout, use_container_width=True)
 
-    # Tabs
-    tab_watchlist, tab_scanner, tab_backtester = st.tabs([
-        "📋 Watchlist & Preferences", 
-        "🔍 Live Watchlist Scanner", 
-        "🧪 Backtester Sandbox"
+    watchlist = database.get_watchlist(subscriber["id"])
+
+    # 1. Clean Top Header
+    st.markdown(f"""
+    <div style="margin-top: 5px; margin-bottom: 20px;">
+        <h1 style="margin: 0; font-size: 2.1rem; font-weight: 800; color: #f8fafc;">🔧 Sentinel Control Panel</h1>
+        <span style="color: #94a3b8; font-size: 0.95rem;">Managing portfolio alerts for <strong style="color: #60a5fa;">{subscriber["email"]}</strong></span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 2. Top KPI Stat Badges Bar
+    buys_active = "Buys" if subscriber["wants_buys"] else ""
+    risks_active = "Risks" if subscriber["wants_risks"] else ""
+    sells_active = "Sells" if subscriber["wants_sells"] else ""
+    active_channels = ", ".join(filter(None, [buys_active, risks_active, sells_active])) or "None"
+
+    kpi1, kpi2, kpi3 = st.columns(3)
+    with kpi1:
+        st.markdown(f"""
+        <div class="card" style="padding: 16px; margin-bottom: 20px;">
+            <span style="color: #94a3b8; font-size: 0.85rem; font-weight: 600;">MONITORED WATCHLIST</span>
+            <div style="font-size: 1.8rem; font-weight: 800; color: #f8fafc; margin-top: 4px;">{len(watchlist)} Tickers</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with kpi2:
+        st.markdown(f"""
+        <div class="card" style="padding: 16px; margin-bottom: 20px;">
+            <span style="color: #94a3b8; font-size: 0.85rem; font-weight: 600;">ACTIVE ALERT CHANNELS</span>
+            <div style="font-size: 1.4rem; font-weight: 700; color: #38df88; margin-top: 8px;">{active_channels}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with kpi3:
+        st.markdown(f"""
+        <div class="card" style="padding: 16px; margin-bottom: 20px;">
+            <span style="color: #94a3b8; font-weight: 600; font-size: 0.85rem;">AI ANALYST ENGINE</span>
+            <div style="font-size: 1.4rem; font-weight: 700; color: #60a5fa; margin-top: 8px;">Groq Llama 3.3-70B</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Main Dashboard Tabs
+    tab_watchlist, tab_scanner, tab_backtester, tab_settings = st.tabs([
+        "📋 Watchlist", 
+        "🔍 Live Scanner", 
+        "🧪 Backtest Sandbox",
+        "⚙️ Alert Settings"
     ])
     
     # ----------------------------------------------------
-    # TAB 1: WATCHLIST & PREFERENCES
+    # TAB 1: WATCHLIST GRID & QUICK ADD
     # ----------------------------------------------------
     with tab_watchlist:
-        col_left, col_right = st.columns([1, 1])
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">Manage Watchlist</div>', unsafe_allow_html=True)
         
-        with col_left:
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.markdown('<div class="card-title">Manage Watchlist</div>', unsafe_allow_html=True)
-            
-            watchlist = database.get_watchlist(subscriber["id"])
-            
-            if watchlist:
-                st.write("Click any stock button to inspect full market data, or click the red trash bin to delete it:")
-                for ticker in watchlist:
-                    wcol1, wcol2 = st.columns([4, 1])
-                    with wcol1:
-                        if st.button(f"📈  {ticker}", key=f"view_{ticker}", use_container_width=True):
-                            st.session_state.selected_ticker_detail = ticker
-                            st.rerun()
-                    with wcol2:
-                        if st.button("🗑️", key=f"del_{ticker}", use_container_width=True):
-                            database.remove_watchlist_ticker(subscriber["id"], ticker)
-                            st.toast(f"Removed {ticker} from watchlist.", icon="🗑️")
-                            st.rerun()
-            else:
-                st.warning("Your watchlist is currently empty. Add tickers below to receive alerts.")
+        # Simplified Inline Ticker Adder Bar
+        with st.form("add_ticker_form_inline", clear_on_submit=True):
+            fcol1, fcol2 = st.columns([4, 1])
+            with fcol1:
+                new_ticker = st.text_input("Add New Ticker", placeholder="Enter ticker symbol (e.g. AMD, NVDA, PLTR, TSLA)", label_visibility="collapsed").strip().upper()
+            with fcol2:
+                add_btn = st.form_submit_button("➕ Add Stock", type="primary", use_container_width=True)
                 
-            st.write("---")
-            st.write("**Add Ticker to Watchlist**")
-            with st.form("add_ticker_form"):
-                new_ticker = st.text_input("Enter Ticker (e.g. AMD, RKLB)").strip().upper()
-                add_btn = st.form_submit_button("Add Ticker")
-                if add_btn:
-                    if not new_ticker:
-                        st.error("Please enter a ticker symbol.")
-                    elif new_ticker in watchlist:
-                        st.info(f"{new_ticker} is already in your watchlist.")
+            if add_btn:
+                if not new_ticker:
+                    st.error("Please enter a ticker symbol.")
+                elif new_ticker in watchlist:
+                    st.info(f"{new_ticker} is already in your watchlist.")
+                else:
+                    success = database.add_watchlist_ticker(subscriber["id"], new_ticker)
+                    if success:
+                        st.toast(f"Added {new_ticker} to watchlist!", icon="⭐")
+                        st.rerun()
                     else:
-                        success = database.add_watchlist_ticker(subscriber["id"], new_ticker)
-                        if success:
-                            st.success(f"Added {new_ticker} to watchlist.")
-                            st.rerun()
-                        else:
-                            st.error("Failed to add ticker.")
+                        st.error("Failed to add ticker.")
+                        
+        st.markdown('<div style="margin-top: 20px;"></div>', unsafe_allow_html=True)
+
+        if not watchlist:
+            st.warning("Your watchlist is currently empty. Add tickers above to start monitoring setups.")
+            st.markdown("**Quick Add Suggestions:**")
+            scol1, scol2, scol3, scol4 = st.columns(4)
+            for col, sugg in zip([scol1, scol2, scol3, scol4], ["AMD", "NVDA", "PLTR", "TSLA"]):
+                with col:
+                    if st.button(f"➕ Add {sugg}", key=f"sugg_{sugg}", use_container_width=True):
+                        database.add_watchlist_ticker(subscriber["id"], sugg)
+                        st.rerun()
+        else:
+            st.write("Click any stock card to open full financial analysis, or click 🗑️ to remove:")
             
-            st.markdown('</div>', unsafe_allow_html=True)
-            
-        with col_right:
+            # Stock Cards Grid (2 Tickers per Row)
+            cols_per_row = 2
+            for i in range(0, len(watchlist), cols_per_row):
+                row_tickers = watchlist[i:i + cols_per_row]
+                grid_cols = st.columns(cols_per_row)
+                
+                for idx, ticker in enumerate(row_tickers):
+                    with grid_cols[idx]:
+                        st.markdown(f"""
+                        <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 14px; margin-bottom: 12px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 1.3rem; font-weight: 800; color: #ffffff;">📈 {ticker}</span>
+                                <span style="color: #94a3b8; font-size: 0.8rem; font-weight: 600;">US Equity</span>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        btn_col1, btn_col2 = st.columns([4, 1])
+                        with btn_col1:
+                            if st.button(f"Open {ticker} Analysis Page", key=f"view_card_{ticker}", type="primary", use_container_width=True):
+                                st.session_state.selected_ticker_detail = ticker
+                                st.rerun()
+                        with btn_col2:
+                            if st.button("🗑️", key=f"del_card_{ticker}", use_container_width=True):
+                                database.remove_watchlist_ticker(subscriber["id"], ticker)
+                                st.toast(f"Removed {ticker} from watchlist.", icon="🗑️")
+                                st.rerun()
+                                
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # ----------------------------------------------------
+    # TAB 4: CONSOLIDATED ALERT SETTINGS
+    # ----------------------------------------------------
+    with tab_settings:
+        col_set1, col_set2 = st.columns([1, 1])
+        
+        with col_set1:
             st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.markdown('<div class="card-title">Alert Preferences</div>', unsafe_allow_html=True)
+            st.markdown('<div class="card-title">Alert Notification Preferences</div>', unsafe_allow_html=True)
             
             st.checkbox(
-                "🟢 Wants Buy Opportunities (Hammer Reversals)",
+                "🟢 Buy Opportunities (Hammer Reversals)",
                 value=bool(subscriber["wants_buys"]),
                 key="wants_buys_check",
                 on_change=on_pref_change
             )
             st.checkbox(
-                "🟡 Wants Risk Alerts (Medium Score Hanging Man)",
+                "🟡 Medium Risk Alerts (Hanging Man Reversals)",
                 value=bool(subscriber["wants_risks"]),
                 key="wants_risks_check",
                 on_change=on_pref_change
             )
             st.checkbox(
-                "🔴 Wants Sell Alerts (High Score Hanging Man)",
+                "🔴 High Risk Sell Warnings (High-Volume Hanging Man)",
                 value=bool(subscriber["wants_sells"]),
                 key="wants_sells_check",
                 on_change=on_pref_change
             )
             
-            st.markdown('<p style="font-size: 13px; color: #94a3b8; margin-top: 15px;">Preferences are updated instantly in the database on checkbox toggle.</p>', unsafe_allow_html=True)
-            
-            st.write("---")
-            st.write("**Unsubscribe Option**")
-            st.write("If you no longer wish to receive any scans or alerts, click the button below to permanently erase your data:")
-            
-            if st.button("Unsubscribe Completely", type="primary", use_container_width=True):
-                st.query_params.update(unsubscribe="true")
-                st.rerun()
-                
+            st.markdown('<p style="font-size: 13px; color: #94a3b8; margin-top: 15px;">Preferences update automatically in real-time when toggled.</p>', unsafe_allow_html=True)
             st.markdown('</div>', unsafe_allow_html=True)
             
-            # Email Delivery Tester Card
+        with col_set2:
             st.markdown('<div class="card">', unsafe_allow_html=True)
             st.markdown('<div class="card-title">Email Delivery Tester</div>', unsafe_allow_html=True)
-            st.write("Test if the alerting system is sending emails correctly to your address:")
+            st.write("Send a test alert email to your address:")
             
-            test_btn = st.button("Send Test Alert Email", use_container_width=True)
+            test_btn = st.button("📧 Send Test Alert Email", use_container_width=True)
             if test_btn:
                 mock_ticker = watchlist[0] if watchlist else "NVDA"
                 mock_signal = {
@@ -875,7 +935,7 @@ def render_management_dashboard(subscriber, token):
                     "day2_close": 125.0
                 }
                 
-                with st.spinner("Running optional AI analyst check..."):
+                with st.spinner("Running Groq AI analyst check..."):
                     ai_analysis = analyst_engine.analyze_signal(mock_signal)
                 if ai_analysis:
                     mock_signal["ai_analysis"] = ai_analysis
@@ -888,6 +948,14 @@ def render_management_dashboard(subscriber, token):
                     st.info(f"ℹ️ {status_msg}")
                     st.write("**Simulated Email Output:**")
                     st.components.v1.html(email_html, height=450, scrolling=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            st.markdown('<div class="card" style="margin-top: 15px;">', unsafe_allow_html=True)
+            st.markdown('<div class="card-title">Unsubscribe Account</div>', unsafe_allow_html=True)
+            st.write("Erase all alert preferences and delete your watchlist:")
+            if st.button("Unsubscribe Completely", type="primary", use_container_width=True):
+                st.query_params.update(unsubscribe="true")
+                st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
             
     # ----------------------------------------------------
