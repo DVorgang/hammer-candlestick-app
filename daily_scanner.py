@@ -2,6 +2,11 @@ import sys
 import os
 import argparse
 import logging
+from datetime import datetime
+
+# Set up UTF-8 console output for Windows terminal safety
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 # Set up logging to both console and a log file for task scheduler tracking
 log_format = "%(asctime)s - %(levelname)s - %(message)s"
