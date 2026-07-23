@@ -264,6 +264,24 @@ st.markdown("""
     header[data-testid="stHeader"] .decoration {
         display: none !important;
     }
+
+    /* 5. Stabilize fragment container height — prevent layout collapse during rerun.
+       This is the fix for the "content bouncing" problem. */
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        min-height: 100px !important;
+        contain: layout style !important;
+    }
+
+    /* Lock the main content area so it never collapses to 0 during fragment swap */
+    .main .block-container {
+        min-height: 100vh !important;
+        overflow-anchor: auto !important;
+    }
+
+    /* Prevent scroll-anchor jumps */
+    * {
+        overflow-anchor: auto;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -716,16 +734,15 @@ def render_plotly_stock_chart(ticker, timeframe, chart_style):
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
 def _render_stock_body(ticker, subscriber, token):
-    # Load Ticker Metadata & Historical Market Data
-    with st.spinner(f"Downloading real-time financial statistics & chart for {ticker}..."):
-        ticker_obj = yf.Ticker(ticker)
-        try:
-            info = ticker_obj.info or {}
-        except Exception:
-            info = {}
-            
-        df = pattern_engine.download_stock_data(ticker, period="2y")
-        
+    # Load Ticker Metadata & Historical Market Data (no spinner — prevents bounce during auto-refresh)
+    ticker_obj = yf.Ticker(ticker)
+    try:
+        info = ticker_obj.info or {}
+    except Exception:
+        info = {}
+
+    df = pattern_engine.download_stock_data(ticker, period="2y")
+
     if df.empty or len(df) < 20:
         st.error(f"Could not load market data for ticker '{ticker}'. Please verify symbol.")
         return
@@ -1179,7 +1196,7 @@ def render_stock_detail_page(ticker, subscriber, token, show_back_button=True):
     with nav_col4:
         if subscriber:
             if in_watchlist:
-                if st.button("🗑️ Remove Watchlist", key=f"btn_remove_detail_{ticker}", use_container_width=True):
+                if st.button("🗑️ Remove From Watchlist", key=f"btn_remove_detail_{ticker}", use_container_width=True):
                     database.remove_watchlist_ticker(subscriber["id"], ticker)
                     st.toast(f"Removed {ticker} from watchlist.", icon="🗑️")
                     st.rerun()
@@ -1592,8 +1609,13 @@ def render_management_dashboard(subscriber, token):
             w_risks = st.session_state.get("wants_risks_check", True)
             w_sells = st.session_state.get("wants_sells_check", True)
             w_growth = st.session_state.get("wants_growth_check", True)
-            database.update_subscriber_preferences(token, w_buys, w_risks, w_sells, w_growth)
-            st.session_state.pending_toast = "Alert Channel preferences updated successfully."
+            # Only update & show toast if values actually changed from what's in the DB
+            prev = (bool(subscriber["wants_buys"]), bool(subscriber["wants_risks"]),
+                    bool(subscriber["wants_sells"]), bool(subscriber.get("wants_growth", 1)))
+            new = (bool(w_buys), bool(w_risks), bool(w_sells), bool(w_growth))
+            if prev != new:
+                database.update_subscriber_preferences(token, w_buys, w_risks, w_sells, w_growth)
+                st.session_state.pending_toast = "Alert Channel preferences updated successfully."
 
         # SECTION 2: ALERT NOTIFICATION PREFERENCES
         st.markdown('<div class="card">', unsafe_allow_html=True)
