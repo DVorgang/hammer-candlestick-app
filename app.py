@@ -1407,57 +1407,49 @@ def render_management_dashboard(subscriber, token):
 
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Scanner Logs Table & Signal Output
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown('<div class="card-title">Recent Scanner Run Logs</div>', unsafe_allow_html=True)
-        
-        logs = database.get_all_scan_logs(limit=8)
-        if not logs:
-            st.info("No scanner execution logs recorded yet. Click 'Run Instant Daily Scan Now' above to perform your first scan!")
-        else:
-            log_df = pd.DataFrame(logs)
-            log_df["duration_seconds"] = log_df["duration_seconds"].apply(lambda x: f"{x:.2f}s")
-            log_df = log_df.rename(columns={
-                "timestamp": "Timestamp",
-                "duration_seconds": "Duration",
-                "tickers_scanned": "Tickers",
-                "signals_found": "Setups Found",
-                "alerts_sent": "Alerts Sent",
-                "trigger_type": "Trigger Type"
-            })
-            st.table(log_df[["Timestamp", "Trigger Type", "Duration", "Tickers", "Setups Found", "Alerts Sent"]])
+        # Expandable Dropdowns for Clean UI
+        with st.expander("📄 View Recent Scanner Run Logs", expanded=False):
+            logs = database.get_all_scan_logs(limit=10)
+            if not logs:
+                st.info("No scanner execution logs recorded yet. Click 'Run Instant Daily Scan Now' above to perform your first scan!")
+            else:
+                log_df = pd.DataFrame(logs)
+                log_df["duration_seconds"] = log_df["duration_seconds"].apply(lambda x: f"{x:.2f}s")
+                log_df = log_df.rename(columns={
+                    "timestamp": "Timestamp",
+                    "duration_seconds": "Duration",
+                    "tickers_scanned": "Tickers",
+                    "signals_found": "Setups Found",
+                    "alerts_sent": "Alerts Sent",
+                    "trigger_type": "Trigger Type"
+                })
+                st.table(log_df[["Timestamp", "Trigger Type", "Duration", "Tickers", "Setups Found", "Alerts Sent"]])
 
-        st.markdown('</div>', unsafe_allow_html=True)
-                    
-        # Optional Email Alert Preview Sandbox
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown('<div class="card-title">Live Alert Email Layout Inspector</div>', unsafe_allow_html=True)
-        st.write("Inspect how Groq AI formats candlestick setup email alerts delivered to your inbox:")
-        
-        if watchlist:
-            demo_ticker = watchlist[0]
-            demo_signal = {
-                "ticker": demo_ticker,
-                "pattern_type": "Hammer",
-                "confidence_score": 89.2,
-                "rsi_14": 29.1,
-                "vol_mult": 1.85,
-                "day1_date": "2026-07-21",
-                "day1_close": 150.0,
-                "day1_low": 142.0,
-                "day1_high": 152.0,
-                "day2_date": "2026-07-22",
-                "day2_close": 155.0,
-                "day3_open": 156.0
-            }
-            demo_ai = analyst_engine.analyze_signal(demo_signal)
-            if demo_ai:
-                demo_signal["ai_analysis"] = demo_ai
-            demo_html = notifier.format_alert_email(demo_signal, token)
-            st.components.v1.html(demo_html, height=520, scrolling=True)
-        else:
-            st.info("Add stock tickers to your Watchlist to view email alert previews.")
-        st.markdown('</div>', unsafe_allow_html=True)
+        with st.expander("📧 View Live Alert Email Layout Inspector", expanded=False):
+            st.write("Inspect how Groq AI formats candlestick setup email alerts delivered to your inbox:")
+            if watchlist:
+                demo_ticker = watchlist[0]
+                demo_signal = {
+                    "ticker": demo_ticker,
+                    "pattern_type": "Hammer",
+                    "confidence_score": 89.2,
+                    "rsi_14": 29.1,
+                    "vol_mult": 1.85,
+                    "day1_date": "2026-07-21",
+                    "day1_close": 150.0,
+                    "day1_low": 142.0,
+                    "day1_high": 152.0,
+                    "day2_date": "2026-07-22",
+                    "day2_close": 155.0,
+                    "day3_open": 156.0
+                }
+                demo_ai = analyst_engine.analyze_signal(demo_signal)
+                if demo_ai:
+                    demo_signal["ai_analysis"] = demo_ai
+                demo_html = notifier.format_alert_email(demo_signal, token)
+                st.components.v1.html(demo_html, height=520, scrolling=True)
+            else:
+                st.info("Add stock tickers to your Watchlist to view email alert previews.")
 
     # ----------------------------------------------------
     # TAB 3: BACKTESTER SANDBOX
