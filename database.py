@@ -63,12 +63,37 @@ def init_db():
     );
     """
     
+    create_scanner_logs_table = """
+    CREATE TABLE IF NOT EXISTS scanner_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        duration_seconds REAL NOT NULL,
+        tickers_scanned INTEGER NOT NULL,
+        signals_found INTEGER NOT NULL,
+        alerts_sent INTEGER NOT NULL,
+        trigger_type TEXT DEFAULT 'manual'
+    );
+    """
+    create_scheduler_state_table = """
+    CREATE TABLE IF NOT EXISTS scheduler_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        is_active INTEGER DEFAULT 0,
+        start_timestamp TEXT,
+        last_run_timestamp TEXT
+    );
+    """
+    
     conn = get_db_connection()
     try:
         with conn:
             conn.execute(create_subscribers_table)
             conn.execute(create_watchlists_table)
             conn.execute(create_sent_alerts_table)
+            conn.execute(create_scanner_logs_table)
+            conn.execute(create_scheduler_state_table)
+            
+            # Ensure default row 1 exists in scheduler_state
+            conn.execute("INSERT OR IGNORE INTO scheduler_state (id, is_active, start_timestamp) VALUES (1, 0, NULL);")
             
             # Check if columns otp_code and otp_expiry exist, if not add them
             cursor = conn.execute("PRAGMA table_info(subscribers);")
@@ -402,6 +427,90 @@ def record_sent_alert(subscriber_id, signal):
     except sqlite3.Error as e:
         logging.error(f"Database error recording sent alert: {e}")
         return False
+    finally:
+        conn.close()
+
+def record_scan_log(duration_seconds, tickers_scanned, signals_found, alerts_sent, trigger_type="manual"):
+    """
+    Records execution metrics of a scanner run.
+    """
+    conn = get_db_connection()
+    try:
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO scanner_logs (timestamp, duration_seconds, tickers_scanned, signals_found, alerts_sent, trigger_type)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (now_str, round(duration_seconds, 2), tickers_scanned, signals_found, alerts_sent, trigger_type)
+            )
+            conn.execute("UPDATE scheduler_state SET last_run_timestamp = ? WHERE id = 1;", (now_str,))
+        return True
+    except sqlite3.Error as e:
+        logging.error(f"Database error recording scan log: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_last_scan_log():
+    """
+    Returns the most recent scan log record.
+    """
+    conn = get_db_connection()
+    try:
+        row = conn.execute("SELECT * FROM scanner_logs ORDER BY id DESC LIMIT 1;").fetchone()
+        return dict(row) if row else None
+    except sqlite3.Error as e:
+        logging.error(f"Database error getting last scan log: {e}")
+        return None
+    finally:
+        conn.close()
+
+def get_all_scan_logs(limit=10):
+    """
+    Returns recent scan logs.
+    """
+    conn = get_db_connection()
+    try:
+        rows = conn.execute("SELECT * FROM scanner_logs ORDER BY id DESC LIMIT ?;", (limit,)).fetchall()
+        return [dict(r) for r in rows]
+    except sqlite3.Error as e:
+        logging.error(f"Database error getting scan logs: {e}")
+        return []
+    finally:
+        conn.close()
+
+def set_scheduler_active(is_active):
+    """
+    Toggles auto-scheduler active state and records start timestamp.
+    """
+    conn = get_db_connection()
+    try:
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S") if is_active else None
+        with conn:
+            conn.execute(
+                "UPDATE scheduler_state SET is_active = ?, start_timestamp = CASE WHEN ? = 1 THEN ? ELSE NULL END WHERE id = 1;",
+                (1 if is_active else 0, 1 if is_active else 0, now_str)
+            )
+        return True
+    except sqlite3.Error as e:
+        logging.error(f"Database error setting scheduler active: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_scheduler_state():
+    """
+    Returns current auto-scheduler toggle state and start timestamp.
+    """
+    conn = get_db_connection()
+    try:
+        row = conn.execute("SELECT * FROM scheduler_state WHERE id = 1;").fetchone()
+        return dict(row) if row else {"is_active": 0, "start_timestamp": None, "last_run_timestamp": None}
+    except sqlite3.Error as e:
+        logging.error(f"Database error getting scheduler state: {e}")
+        return {"is_active": 0, "start_timestamp": None, "last_run_timestamp": None}
     finally:
         conn.close()
 

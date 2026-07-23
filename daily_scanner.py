@@ -26,9 +26,12 @@ import pattern_engine
 import notifier
 import analyst_engine
 
-def run_daily_scan(days_to_scan=3):
+import time
+
+def run_daily_scan(days_to_scan=3, trigger_type="manual"):
+    start_time = time.time()
     logging.info("=========================================")
-    logging.info("Starting Daily Candlestick Sentinel Scan")
+    logging.info(f"Starting Daily Candlestick Sentinel Scan (Trigger: {trigger_type})")
     logging.info("=========================================")
     
     # 1. Initialize database
@@ -38,12 +41,16 @@ def run_daily_scan(days_to_scan=3):
     subscribers = database.get_all_subscribers()
     if not subscribers:
         logging.info("No active subscribers found in the database. Exiting.")
+        duration = time.time() - start_time
+        database.record_scan_log(duration, 0, 0, 0, trigger_type=trigger_type)
         return
 
     logging.info(f"Loaded {len(subscribers)} subscribers from SQLite.")
     
-    # Track scans to avoid duplicate downloads for the same ticker
+    # Track metrics
     ticker_cache = {}
+    total_signals_found = 0
+    total_alerts_sent = 0
     
     for sub in subscribers:
         email = sub["email"]
@@ -79,6 +86,7 @@ def run_daily_scan(days_to_scan=3):
                 if not signal["confirmed"]:
                     continue # Discard unconfirmed patterns
                     
+                total_signals_found += 1
                 pattern_type = signal["pattern_type"]
                 score = signal["confidence_score"]
                 
@@ -108,13 +116,11 @@ def run_daily_scan(days_to_scan=3):
                         continue
 
                     # Estimate Day 3 opening price as latest close/estimation
-                    # (In live execution at 9:31 AM, we'd use yfinance live tick to check if it has gapped past invalidation levels)
                     entry_est = signal.get("day3_open") or signal.get("day2_close")
                     day1_low = signal["day1_low"]
                     day1_high = signal["day1_high"]
                     
-                    # Final safety check: ensure the day 3 open hasn't already violated the stop loss levels
-                    # (gap risk validation)
+                    # Final safety check: gap risk validation
                     invalidation_gap = False
                     if pattern_type == "Hammer" and entry_est <= day1_low:
                         invalidation_gap = True
@@ -140,11 +146,16 @@ def run_daily_scan(days_to_scan=3):
                     logging.info(f"Delivery status for {email} / {ticker}: {status_msg}")
                     if sent_real_email:
                         database.record_sent_alert(sub_id, signal)
+                        total_alerts_sent += 1
                 else:
                     logging.debug(f"Signal detected for {ticker} but subscriber {email} has opted out of {pattern_type} alert preferences.")
                     
+    duration = time.time() - start_time
+    tickers_count = len(ticker_cache)
+    database.record_scan_log(duration, tickers_count, total_signals_found, total_alerts_sent, trigger_type=trigger_type)
+
     logging.info("=========================================")
-    logging.info("Scan completed successfully.")
+    logging.info(f"Scan completed successfully in {duration:.2f}s across {tickers_count} tickers.")
     logging.info("=========================================\n")
 
 if __name__ == "__main__":

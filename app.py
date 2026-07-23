@@ -1282,77 +1282,140 @@ def render_management_dashboard(subscriber, token):
             st.markdown('</div>', unsafe_allow_html=True)
             
     # ----------------------------------------------------
-    # TAB 2: LIVE SCANNER
+    # TAB 2: LIVE SCANNER & AUTOMATED SCHEDULER
     # ----------------------------------------------------
     with tab_scanner:
         st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown('<div class="card-title">Live Watchlist Scanner (Last 10 Days)</div>', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">⚡ Automated Background Scanner & Scheduler Control</div>', unsafe_allow_html=True)
         
-        watchlist = database.get_watchlist(subscriber["id"])
+        sched_state = database.get_scheduler_state()
+        is_sched_active = bool(sched_state.get("is_active"))
+        start_ts_str = sched_state.get("start_timestamp")
         
-        if not watchlist:
-            st.info("Please add tickers to your watchlist under the 'Watchlist & Preferences' tab first.")
-        else:
-            scan_btn = st.button("Trigger Scan Now", type="primary")
-            
-            if scan_btn or "last_scan_results" in st.session_state:
-                if scan_btn:
-                    with st.spinner("Scanning tickers and pulling market data from Yahoo Finance..."):
-                        all_signals = []
-                        for ticker in watchlist:
-                            signals = pattern_engine.scan_ticker_for_signals(ticker, days_to_scan=10)
-                            all_signals.extend(signals)
-                        st.session_state.last_scan_results = all_signals
-                
-                signals = st.session_state.get("last_scan_results", [])
-                
-                if not signals:
-                    st.success("No active geometric setups identified on your watchlist over the last 10 trading days.")
+        # Calculate uptime if active
+        uptime_str = "Stopped"
+        if is_sched_active and start_ts_str:
+            try:
+                start_dt = datetime.strptime(start_ts_str, "%Y-%m-%d %H:%M:%S")
+                delta = datetime.now() - start_dt
+                days = delta.days
+                hours, remainder = divmod(delta.seconds, 3600)
+                minutes, _ = divmod(remainder, 60)
+                if days > 0:
+                    uptime_str = f"{days}d {hours}h {minutes}m"
+                elif hours > 0:
+                    uptime_str = f"{hours}h {minutes}m"
                 else:
-                    st.write(f"Identified **{len(signals)}** pattern setups:")
+                    uptime_str = f"{minutes}m"
+            except Exception:
+                uptime_str = "Active"
+
+        # Action Control Buttons
+        sc1, sc2 = st.columns([1, 1])
+        with sc1:
+            if st.button("▶️ Run Instant Daily Scan Now", type="primary", use_container_width=True):
+                with st.spinner("Executing full daily scanner across watchlist and running Groq AI..."):
+                    start_t = time.time()
+                    daily_scanner.run_daily_scan(days_to_scan=3, trigger_type="manual")
+                    dur = time.time() - start_t
+                    st.session_state.pending_toast = f"Scan complete! Took {dur:.2f}s across watchlist."
+                    st.rerun()
+
+        with sc2:
+            toggle_label = "🛑 Stop Auto-Scheduler" if is_sched_active else "⚡ Start Auto-Scheduler (Twice Daily)"
+            btn_type = "secondary" if is_sched_active else "primary"
+            if st.button(toggle_label, type=btn_type, use_container_width=True):
+                new_state = not is_sched_active
+                database.set_scheduler_active(new_state)
+                status_txt = "started" if new_state else "stopped"
+                st.session_state.pending_toast = f"Auto-Scheduler has been {status_txt}."
+                st.rerun()
+
+        st.markdown('---')
+
+        # Live Metrics Counter Display
+        last_log = database.get_last_scan_log()
+        last_run_time = last_log["timestamp"] if last_log else "Never"
+        last_duration = f"{last_log['duration_seconds']:.2f}s" if last_log else "n/a"
+        last_tickers = last_log["tickers_scanned"] if last_log else 0
+
+        mc1, mc2, mc3 = st.columns(3)
+        with mc1:
+            status_color = "#38df88" if is_sched_active else "#f87171"
+            status_label = f"🟢 Active ({uptime_str})" if is_sched_active else "🔴 Stopped"
+            st.markdown(f"""
+            <div style="background: #0f172a; padding: 12px 16px; border-radius: 8px; border: 1px solid #334155;">
+                <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">AUTO-SCHEDULER UPTIME</span>
+                <div style="color: {status_color}; font-size: 1.1rem; font-weight: 800; margin-top: 4px;">{status_label}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with mc2:
+            st.markdown(f"""
+            <div style="background: #0f172a; padding: 12px 16px; border-radius: 8px; border: 1px solid #334155;">
+                <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">LAST SCAN TIMESTAMP</span>
+                <div style="color: #f8fafc; font-size: 1.1rem; font-weight: 800; margin-top: 4px;">{last_run_time}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with mc3:
+            st.markdown(f"""
+            <div style="background: #0f172a; padding: 12px 16px; border-radius: 8px; border: 1px solid #334155;">
+                <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">LAST RUN DURATION</span>
+                <div style="color: #38bdf8; font-size: 1.1rem; font-weight: 800; margin-top: 4px;">{last_duration} ({last_tickers} Tickers)</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # Scanner Logs Table & Signal Output
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">Recent Scanner Run Logs</div>', unsafe_allow_html=True)
+        
+        logs = database.get_all_scan_logs(limit=8)
+        if not logs:
+            st.info("No scanner execution logs recorded yet. Click 'Run Instant Daily Scan Now' above to perform your first scan!")
+        else:
+            log_df = pd.DataFrame(logs)
+            log_df["duration_seconds"] = log_df["duration_seconds"].apply(lambda x: f"{x:.2f}s")
+            log_df = log_df.rename(columns={
+                "timestamp": "Timestamp",
+                "duration_seconds": "Duration",
+                "tickers_scanned": "Tickers",
+                "signals_found": "Setups Found",
+                "alerts_sent": "Alerts Sent",
+                "trigger_type": "Trigger Type"
+            })
+            st.table(log_df[["Timestamp", "Trigger Type", "Duration", "Tickers", "Setups Found", "Alerts Sent"]])
+
+        st.markdown('</div>', unsafe_allow_html=True)
                     
-                    display_data = []
-                    for s in signals:
-                        display_data.append({
-                            "Ticker": s["ticker"],
-                            "Setup Date": s["day1_date"].strftime("%Y-%m-%d") if hasattr(s["day1_date"], "strftime") else str(s["day1_date"])[:10],
-                            "Pattern": s["pattern_type"],
-                            "Conf. Score": f"{s['confidence_score']:.1f}/100",
-                            "RSI (14)": f"{s['rsi_14']:.1f}",
-                            "Vol Mult": f"{s['vol_mult']:.2f}x",
-                            "Confirmed": "✅ Yes" if s["confirmed"] else "❌ No"
-                        })
-                    
-                    st.table(pd.DataFrame(display_data))
-                    
-                    st.write("### Preview Alert Email Layout")
-                    st.write("Select a setup from the list below to inspect the generated beginner-friendly email layout sent to users:")
-                    
-                    selected_idx = st.selectbox(
-                        "Select Signal to Preview",
-                        options=list(range(len(signals))),
-                        format_func=lambda i: (
-                            f"{signals[i]['ticker']} - {signals[i]['pattern_type']} "
-                            f"({signals[i]['day1_date'].strftime('%Y-%m-%d') if hasattr(signals[i]['day1_date'], 'strftime') else str(signals[i]['day1_date'])[:10]}) "
-                            f"[Score: {signals[i]['confidence_score']:.1f}]"
-                        )
-                    )
-                    selected_signal = signals[selected_idx]
-                    
-                    email_html = notifier.format_alert_email(selected_signal, token)
-                    
-                    st.markdown("""
-                    <div style="background-color: #f1f5f9; padding: 20px; border-radius: 8px; border: 3px solid #cbd5e1;">
-                        <div style="background-color: #ffffff; padding: 10px; border-bottom: 1px solid #e2e8f0; font-family: sans-serif; font-size: 13px; color: #475569; border-radius: 5px 5px 0 0;">
-                            <strong>From:</strong> alerts@candlesticksentinel.com<br>
-                            <strong>To:</strong> your-email@address.com<br>
-                            <strong>Subject:</strong> Candlestick Sentinel Alert: Market action for ticker
-                        </div>
-                    """, unsafe_allow_html=True)
-                    
-                    st.components.v1.html(email_html, height=580, scrolling=True)
-                    st.markdown("</div>", unsafe_allow_html=True)
-                    
+        # Optional Email Alert Preview Sandbox
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">Live Alert Email Layout Inspector</div>', unsafe_allow_html=True)
+        st.write("Inspect how Groq AI formats candlestick setup email alerts delivered to your inbox:")
+        
+        if watchlist:
+            demo_ticker = watchlist[0]
+            demo_signal = {
+                "ticker": demo_ticker,
+                "pattern_type": "Hammer",
+                "confidence_score": 89.2,
+                "rsi_14": 29.1,
+                "vol_mult": 1.85,
+                "day1_date": "2026-07-21",
+                "day1_close": 150.0,
+                "day1_low": 142.0,
+                "day1_high": 152.0,
+                "day2_date": "2026-07-22",
+                "day2_close": 155.0,
+                "day3_open": 156.0
+            }
+            demo_ai = analyst_engine.analyze_signal(demo_signal)
+            if demo_ai:
+                demo_signal["ai_analysis"] = demo_ai
+            demo_html = notifier.format_alert_email(demo_signal, token)
+            st.components.v1.html(demo_html, height=520, scrolling=True)
+        else:
+            st.info("Add stock tickers to your Watchlist to view email alert previews.")
         st.markdown('</div>', unsafe_allow_html=True)
 
     # ----------------------------------------------------
