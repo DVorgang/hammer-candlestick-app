@@ -1283,10 +1283,11 @@ def render_management_dashboard(subscriber, token):
     """, unsafe_allow_html=True)
 
     # 2. Top KPI Stat Badges Bar
-    buys_active = "Buys" if subscriber["wants_buys"] else ""
-    risks_active = "Risks" if subscriber["wants_risks"] else ""
-    sells_active = "Sells" if subscriber["wants_sells"] else ""
-    active_channels = ", ".join(filter(None, [buys_active, risks_active, sells_active])) or "None"
+    buys_active = "Buys" if subscriber.get("wants_buys", 1) else ""
+    risks_active = "Risks" if subscriber.get("wants_risks", 1) else ""
+    sells_active = "Sells" if subscriber.get("wants_sells", 1) else ""
+    growth_active = "Growth" if subscriber.get("wants_growth", 1) else ""
+    active_channels = ", ".join(filter(None, [buys_active, risks_active, sells_active, growth_active])) or "None"
 
     kpi1, kpi2, kpi3 = st.columns(3)
     with kpi1:
