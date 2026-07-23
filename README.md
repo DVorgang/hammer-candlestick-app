@@ -33,7 +33,7 @@ The application combines **algorithmic technical pattern detection** with **whol
 
 ### 5. 📈 Interactive Financial Analysis & Live Auto-Refresh
 * **Dedicated Stock Analysis Pages**: Full financial stats, Plotly gradient area & candlestick charts, 50/200 SMAs, RSI (14), historical signals, and 2-year strategy backtest logs.
-* **Live Quote Auto-Refresh**: Powered by Streamlit `@st.fragment` to update prices & charts without full-page reloads (`30s Recommended`, `15s Fast`, `60s`, `Off`) alongside a manual `🔄 Refresh Quote Now` button.
+* **Live Quote Auto-Refresh**: Powered by Streamlit `@st.fragment` to update prices & charts without full-page reloads (`1s Ultra-Fast`, `15s Fast`, `30s Recommended`, `60s`, `Off`) alongside a manual `🔄 Refresh Quote Now` button. The `🚀 1s (Ultra-Fast)` mode silently suppresses all Streamlit loading indicators for a seamless, flicker-free live-updating experience.
 
 ### 6. 📧 Styled HTML Email Notifications
 * **Technical Trade Alerts**: Contains setup confidence scores, trade blueprint cards (Entry, Stop Loss, Target), risk math, and AI technical summaries.

@@ -209,8 +209,64 @@ st.markdown("""
     .stTabs [data-baseweb="tab-border"] {
         display: none !important;
     }
+    /* ===== SILENT AUTO-REFRESH: Eliminate ALL visual artifacts during @st.fragment reruns ===== */
+
+    /* 1. Kill the "stale" opacity fade — this is the PRIMARY cause of the flash.
+       Streamlit sets opacity ~0.33 on every element inside a fragment while it reruns. */
+    [data-stale],
+    [data-stale="true"],
+    [data-stale] *,
+    .stale,
+    .element-container[data-stale],
+    div[data-stale="true"] {
+        opacity: 1 !important;
+        transition: none !important;
+        animation: none !important;
+    }
+
+    /* 2. Force ALL Streamlit containers to never animate opacity/transform/visibility */
+    div[data-testid="stVerticalBlock"],
+    div[data-testid="stHorizontalBlock"],
+    div[data-testid="stElementContainer"],
+    div[data-testid="stColumn"],
+    div[data-testid="stMetric"],
+    div[data-testid="stPlotlyChart"],
+    div[data-testid="stDataFrame"],
+    div[data-testid="stMarkdown"],
+    div[data-testid="stTable"],
+    div[data-testid="stImage"],
+    div[data-testid="stExpander"],
+    section[data-testid="stSidebar"],
+    .stApp,
+    .main .block-container,
+    .main .block-container * {
+        transition: none !important;
+        animation: none !important;
+    }
+
+    /* 3. Hide ALL running/loading indicators */
+    [data-testid="stStatusWidget"],
+    div[data-testid="stStatusWidget"],
+    .stSpinner,
+    .stProgress,
+    [data-testid="stElementToolbar"],
+    header[data-testid="stHeader"] [data-testid="stStatusWidget"],
+    div[data-testid="stAppViewBlockContainer"] > div[data-testid="stStatusWidget"] {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        height: 0 !important;
+        overflow: hidden !important;
+    }
+
+    /* 4. Prevent Streamlit's "running man" top-right status from appearing */
+    header[data-testid="stHeader"]::after,
+    header[data-testid="stHeader"] .decoration {
+        display: none !important;
+    }
 </style>
 """, unsafe_allow_html=True)
+
 
 # Main Application Router
 def main():
@@ -1113,7 +1169,7 @@ def render_stock_detail_page(ticker, subscriber, token, show_back_button=True):
     with nav_col3:
         refresh_mode = st.selectbox(
             "Auto Refresh Rate",
-            ["⏱️ Auto-Refresh: 30s (Rec.)", "⚡ Auto-Refresh: 15s (Fast)", "⏳ Auto-Refresh: 60s", "🛑 Auto-Refresh: Off"],
+            ["🚀 Auto-Refresh: 1s (Ultra-Fast)", "⚡ Auto-Refresh: 15s (Fast)", "⏱️ Auto-Refresh: 30s (Rec.)", "⏳ Auto-Refresh: 60s", "🛑 Auto-Refresh: Off"],
             key=f"auto_refresh_select_{ticker}",
             label_visibility="collapsed"
         )
@@ -1133,9 +1189,13 @@ def render_stock_detail_page(ticker, subscriber, token, show_back_button=True):
                     st.toast(f"Added {ticker} to watchlist!", icon="⭐")
                     st.rerun()
 
-
     # Route auto-refresh interval based on dropdown selection
-    if "15s" in refresh_mode:
+    if "1s" in refresh_mode:
+        @st.fragment(run_every=1)
+        def _draw_1():
+            _render_stock_body(ticker, subscriber, token)
+        _draw_1()
+    elif "15s" in refresh_mode:
         @st.fragment(run_every=15)
         def _draw_15():
             _render_stock_body(ticker, subscriber, token)
@@ -1152,6 +1212,7 @@ def render_stock_detail_page(ticker, subscriber, token, show_back_button=True):
         _draw_60()
     else:
         _render_stock_body(ticker, subscriber, token)
+
 
 def render_management_dashboard(subscriber, token):
 
