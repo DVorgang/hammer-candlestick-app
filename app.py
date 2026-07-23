@@ -1121,59 +1121,23 @@ def render_management_dashboard(subscriber, token):
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown('<div class="card-title">Manage Watchlist</div>', unsafe_allow_html=True)
         
-        # Smart Searchable Autocomplete Ticker Bar
-        POPULAR_STOCKS = [
-            "Search or select stock...",
-            "AMD - Advanced Micro Devices, Inc.",
-            "NVDA - NVIDIA Corporation",
-            "PLTR - Palantir Technologies Inc.",
-            "TSLA - Tesla, Inc.",
-            "AAPL - Apple Inc.",
-            "MSFT - Microsoft Corporation",
-            "AMZN - Amazon.com, Inc.",
-            "GOOGL - Alphabet Inc.",
-            "META - Meta Platforms, Inc.",
-            "NFLX - Netflix, Inc.",
-            "SMCI - Super Micro Computer, Inc.",
-            "INGN - Inogen, Inc.",
-            "LEDS - SemiLEDs Corporation",
-            "RKLB - Rocket Lab USA, Inc.",
-            "SOFI - SoFi Technologies, Inc.",
-            "AVGO - Broadcom Inc.",
-            "INTC - Intel Corporation",
-            "MU - Micron Technology, Inc.",
-            "CMCSA - Comcast Corporation",
-            "MNTS - Momentus Inc.",
-            "✏️ Type custom symbol..."
-        ]
-
-        with st.form("add_ticker_form_smart", clear_on_submit=True):
+        # Universal Free-Text Ticker Input (Supports ANY ticker: SIRI, AMD, NVDA, etc.)
+        with st.form("add_ticker_form_universal", clear_on_submit=True):
             fcol1, fcol2 = st.columns([4, 1])
             with fcol1:
-                selected_option = st.selectbox(
-                    "Search Stock",
-                    options=POPULAR_STOCKS,
-                    index=0,
+                new_ticker_input = st.text_input(
+                    "Add Ticker Symbol",
+                    placeholder="Type ANY ticker symbol (e.g. SIRI, AMD, NVDA, PLTR, BABA)...",
                     label_visibility="collapsed"
-                )
-                
-                # If user selects custom symbol option or types custom text
-                custom_ticker = ""
-                if selected_option == "✏️ Type custom symbol...":
-                    custom_ticker = st.text_input("Enter Symbol", placeholder="Type unlisted ticker (e.g. ADVB, BABA, SPY)", label_visibility="collapsed").strip().upper()
-
+                ).strip().upper()
             with fcol2:
                 add_btn = st.form_submit_button("➕ Add Stock", type="primary", use_container_width=True)
 
             if add_btn:
-                target_symbol = ""
-                if selected_option == "✏️ Type custom symbol...":
-                    target_symbol = custom_ticker
-                elif selected_option and selected_option != "Search or select stock...":
-                    target_symbol = selected_option.split(" - ")[0].strip().upper()
-
+                # Extract clean ticker symbol if user typed 'SIRI' or 'SIRI - Sirius XM'
+                target_symbol = new_ticker_input.split(" ")[0].split("-")[0].strip().upper()
                 if not target_symbol:
-                    st.error("Please select a stock or enter a valid ticker symbol.")
+                    st.error("Please enter a ticker symbol.")
                 elif target_symbol in watchlist:
                     st.info(f"{target_symbol} is already in your watchlist.")
                 else:
@@ -1184,7 +1148,7 @@ def render_management_dashboard(subscriber, token):
                     else:
                         st.error("Failed to add ticker.")
 
-        st.markdown('<div style="margin-top: 20px;"></div>', unsafe_allow_html=True)
+        st.markdown('<div style="margin-top: 15px;"></div>', unsafe_allow_html=True)
 
         if not watchlist:
             st.warning("Your watchlist is currently empty. Add tickers above to start monitoring setups.")
