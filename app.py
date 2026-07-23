@@ -10,6 +10,7 @@ import notifier
 import analyst_engine
 import pandas as pd
 import yfinance as yf
+import plotly.graph_objects as go
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -377,6 +378,123 @@ def format_exchange_name(info):
         return short_code.upper()
     return "NASDAQ"
 
+def render_plotly_stock_chart(ticker, timeframe, chart_style):
+    tf_map = {
+        "1D": ("1d", "5m"),
+        "5D": ("5d", "15m"),
+        "1M": ("1mo", "1d"),
+        "3M": ("3mo", "1d"),
+        "6M": ("6mo", "1d"),
+        "YTD": ("ytd", "1d"),
+        "1Y": ("1y", "1d"),
+        "2Y": ("2y", "1d"),
+        "5Y": ("5y", "1wk"),
+        "Max": ("max", "1wk")
+    }
+    period, interval = tf_map.get(timeframe, ("1y", "1d"))
+    
+    try:
+        data = yf.Ticker(ticker).history(period=period, interval=interval)
+    except Exception:
+        data = pd.DataFrame()
+        
+    if data.empty:
+        st.info("Chart data not available for this timeframe.")
+        return
+
+    data = data.reset_index()
+    start_price = float(data['Close'].iloc[0])
+    current_price = float(data['Close'].iloc[-1])
+    period_change = current_price - start_price
+    period_pct = (period_change / start_price) * 100 if start_price != 0 else 0.0
+    
+    is_positive = period_change >= 0
+    line_color = "#10b981" if is_positive else "#ef4444"
+    fill_color = "rgba(16, 185, 129, 0.12)" if is_positive else "rgba(239, 68, 68, 0.12)"
+    
+    date_col = 'Datetime' if 'Datetime' in data.columns else 'Date'
+    
+    fig = go.Figure()
+    
+    if chart_style == "📈 Gradient Area":
+        fig.add_trace(go.Scatter(
+            x=data[date_col],
+            y=data['Close'],
+            mode='lines',
+            line=dict(color=line_color, width=2),
+            fill='tozeroy',
+            fillcolor=fill_color,
+            name='Close Price',
+            hovertemplate='<b>%{x}</b><br>Price: <b>$%{y:.2f}</b><extra></extra>'
+        ))
+    else:
+        fig.add_trace(go.Candlestick(
+            x=data[date_col],
+            open=data['Open'],
+            high=data['High'],
+            low=data['Low'],
+            close=data['Close'],
+            increasing_line_color='#10b981',
+            decreasing_line_color='#ef4444',
+            name='OHLC'
+        ))
+        
+    # Baseline Reference Line (Period Start Price)
+    fig.add_shape(
+        type="line",
+        x0=data[date_col].iloc[0],
+        y0=start_price,
+        x1=data[date_col].iloc[-1],
+        y1=start_price,
+        line=dict(color="#64748b", width=1, dash="dash")
+    )
+    
+    # Current Price Tag Badge on Right Y-Axis
+    fig.add_annotation(
+        x=data[date_col].iloc[-1],
+        y=current_price,
+        text=f"${current_price:.2f}",
+        showarrow=False,
+        xanchor="left",
+        yanchor="middle",
+        bgcolor=line_color,
+        font=dict(color="#ffffff", size=12, family="sans-serif"),
+        borderpad=4
+    )
+    
+    sign_str = "+" if period_change >= 0 else ""
+    return_badge = f"{sign_str}{period_pct:.2f}% ({timeframe})"
+    
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=10, r=60, t=30, b=10),
+        height=400,
+        xaxis=dict(
+            showgrid=True,
+            gridcolor="#1e293b",
+            showline=False,
+            zeroline=False
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor="#1e293b",
+            showline=False,
+            zeroline=False,
+            side="right"
+        ),
+        showlegend=False,
+        title=dict(
+            text=f"<span style='color:{line_color}; font-size:16px; font-weight:bold;'>{return_badge}</span>",
+            x=0.98,
+            xanchor="right",
+            y=0.98
+        )
+    )
+    
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
 def render_stock_detail_page(ticker, subscriber, token):
     # Top Action Navigation Bar
     nav_col1, nav_col2 = st.columns([1, 1])
@@ -564,15 +682,26 @@ def render_stock_detail_page(ticker, subscriber, token):
             st.markdown('<div class="card">', unsafe_allow_html=True)
             st.markdown('<div class="card-title">Interactive Price Chart</div>', unsafe_allow_html=True)
             
-            tf = st.radio("Timeframe", ["1M", "3M", "6M", "1Y", "2Y"], index=3, horizontal=True, key="tf_select")
-            tf_days = {"1M": 22, "3M": 65, "6M": 126, "1Y": 252, "2Y": len(df)}[tf]
-            
-            chart_data = df.iloc[-tf_days:].copy()
-            if 'Date' in chart_data.columns:
-                chart_data['Date_Str'] = chart_data['Date'].astype(str).str[:10]
-                chart_data.set_index('Date_Str', inplace=True)
+            tcol1, tcol2 = st.columns([3, 1])
+            with tcol1:
+                tf = st.radio(
+                    "Timeframe", 
+                    ["1D", "5D", "1M", "3M", "6M", "YTD", "1Y", "2Y", "5Y", "Max"], 
+                    index=2, 
+                    horizontal=True, 
+                    key="tf_select",
+                    label_visibility="collapsed"
+                )
+            with tcol2:
+                c_style = st.selectbox(
+                    "Style", 
+                    ["📈 Gradient Area", "📊 Candlesticks"], 
+                    index=0, 
+                    key="c_style_select",
+                    label_visibility="collapsed"
+                )
                 
-            st.line_chart(chart_data[['Close']])
+            render_plotly_stock_chart(ticker, tf, c_style)
             st.markdown('</div>', unsafe_allow_html=True)
     # TAB 2: FINANCIAL PERFORMANCE
     with tab_financials:
