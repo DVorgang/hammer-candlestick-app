@@ -28,6 +28,7 @@ import threading
 import time
 import daily_scanner
 import growth_scanner
+import growth_engine
 
 # Background Auto-Scheduler Daemon Thread Setup
 _scheduler_thread = None
