@@ -125,26 +125,12 @@ def identify_setup_candle(df, idx):
         return False, None, 0.0
 
     # Distinguish Trend (Hammer vs Hanging Man)
-    # Hammer: Bullish Reversal at bottom of downtrend
-    # Hanging Man: Bearish Reversal at top of uptrend
-    # Let's check trend indicators:
-    # Hammer: Close is below SMA_50, or RSI is oversold/low (< 50)
-    # Hanging Man: Close is above SMA_50, or RSI is overbought/high (> 50)
-    
-    is_hammer_trend = (c < sma_50) or (rsi < 45) or (c < df['Close'].iloc[idx-3])
-    is_hanging_man_trend = (c > sma_50) or (rsi > 55) or (c > df['Close'].iloc[idx-3])
-    
-    pattern_type = None
-    if is_hammer_trend and not (rsi > 50): # Hammer is strictly oversold / neutral
+    # Hammer: Bullish Reversal at bottom of downtrend / oversold support (RSI < 50)
+    # Hanging Man: Bearish Reversal at top of uptrend / overbought extension (RSI >= 50)
+    if rsi < 50:
         pattern_type = "Hammer"
-    elif is_hanging_man_trend and not (rsi < 50): # Hanging man is strictly overbought / neutral
-        pattern_type = "Hanging Man"
     else:
-        # Ambiguous trend, classify based on RSI
-        if rsi < 50:
-            pattern_type = "Hammer"
-        else:
-            pattern_type = "Hanging Man"
+        pattern_type = "Hanging Man"
 
     # Calculate Confidence Score (0-100)
     # 1. RSI Factor (up to 35 points)
@@ -233,6 +219,9 @@ def scan_ticker_for_signals(ticker, days_to_scan=5):
             day2_close = df['Close'].iloc[idx + 1]
             day2_date = df['Date'].iloc[idx + 1]
             
+            day3_open = float(df['Open'].iloc[idx + 2]) if (idx + 2 < len(df)) else None
+            day3_date = df['Date'].iloc[idx + 2] if (idx + 2 < len(df)) else None
+            
             confirmed = False
             if pattern_type == "Hammer" and day2_close > day1_high:
                 confirmed = True
@@ -253,9 +242,9 @@ def scan_ticker_for_signals(ticker, days_to_scan=5):
                 "vol_mult": df['Volume'].iloc[idx] / df['Volume_MA_20'].iloc[idx],
                 "day2_date": day2_date,
                 "day2_close": day2_close,
+                "day3_date": day3_date,
+                "day3_open": day3_open,
                 "confirmed": confirmed,
-                # Store references to remaining data for Day 3 open calculation if needed
-                "df_slice": df.iloc[idx:].copy()
             })
             
     return signals

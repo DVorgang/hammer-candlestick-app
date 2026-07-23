@@ -8,9 +8,8 @@ import pattern_engine
 import backtest
 import notifier
 import analyst_engine
-import importlib
-import inspect
 import pandas as pd
+import yfinance as yf
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -133,8 +132,12 @@ def main():
         return
         
     # ----------------------------------------------------
-    # STATE 4: Landing / Signup & Login state
+    # STATE 4: Landing / Signup & Login state (or Stock Detail preview)
     # ----------------------------------------------------
+    if st.session_state.get("selected_ticker_detail"):
+        render_stock_detail_page(st.session_state.selected_ticker_detail, subscriber=None, token=None)
+        return
+
     render_landing_page()
 
 def render_landing_page():
@@ -159,15 +162,14 @@ def render_landing_page():
         """, unsafe_allow_html=True)
         
         st.markdown("### Featured Growth Ticklists")
+        st.write("Click any stock button below to inspect live market data & technical indicators:")
         tickers_show = ["NVDA", "AMD", "PLTR", "RKLB", "SOFI", "MU"]
         cols = st.columns(len(tickers_show))
         for idx, tick in enumerate(tickers_show):
             with cols[idx]:
-                st.markdown(f"""
-                <div style="background-color: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px; text-align: center;">
-                    <span style="font-weight: 700; color: #f8fafc; font-size: 13px;">{tick}</span>
-                </div>
-                """, unsafe_allow_html=True)
+                if st.button(f"📈 {tick}", key=f"land_tick_{tick}", use_container_width=True):
+                    st.session_state.selected_ticker_detail = tick
+                    st.rerun()
                 
     with col2:
         st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -339,7 +341,395 @@ def render_unsubscribe_flow(token):
             else:
                 st.error("Error deleting your record. Please try again.")
 
+def format_large_number(num):
+    if num is None or pd.isna(num):
+        return "n/a"
+    try:
+        num = float(num)
+        if num >= 1e12:
+            return f"${num / 1e12:.2f}T"
+        elif num >= 1e9:
+            return f"${num / 1e9:.2f}B"
+        elif num >= 1e6:
+            return f"${num / 1e6:.2f}M"
+        elif num >= 1e3:
+            return f"${num / 1e3:.2f}K"
+        else:
+            return f"${num:.2f}"
+    except (TypeError, ValueError):
+        return "n/a"
+
+def format_exchange_name(info):
+    full_name = info.get("fullExchangeName") or ""
+    short_code = info.get("exchange") or ""
+    
+    if "Nasdaq" in full_name or short_code in ["NMS", "NCM", "NGS", "NAS"]:
+        return "NASDAQ"
+    elif "NYSE" in full_name or short_code in ["NYQ", "NYS"]:
+        return "NYSE"
+    elif "AMEX" in full_name or short_code in ["ASE"]:
+        return "AMEX"
+    elif "OTC" in full_name or short_code in ["PNK", "OQB", "QX"]:
+        return "OTC"
+    elif full_name:
+        return full_name.upper()
+    elif short_code:
+        return short_code.upper()
+    return "NASDAQ"
+
+def render_stock_detail_page(ticker, subscriber, token):
+    # Top Action Navigation Bar
+    nav_col1, nav_col2 = st.columns([1, 1])
+    with nav_col1:
+        if st.button("⬅️ Back to Control Panel", use_container_width=False):
+            st.session_state.selected_ticker_detail = None
+            st.rerun()
+            
+    watchlist = database.get_watchlist(subscriber["id"]) if subscriber else []
+    in_watchlist = ticker in watchlist
+    with nav_col2:
+        if subscriber:
+            if in_watchlist:
+                if st.button(f"🗑️ Remove {ticker} from Watchlist", key="btn_remove_detail"):
+                    database.remove_watchlist_ticker(subscriber["id"], ticker)
+                    st.toast(f"Removed {ticker} from watchlist.", icon="🗑️")
+                    st.rerun()
+            else:
+                if st.button(f"➕ Add {ticker} to Watchlist", key="btn_add_detail", type="primary"):
+                    database.add_watchlist_ticker(subscriber["id"], ticker)
+                    st.toast(f"Added {ticker} to watchlist!", icon="⭐")
+                    st.rerun()
+
+    # Load Ticker Metadata & Historical Market Data
+    with st.spinner(f"Downloading real-time financial statistics & chart for {ticker}..."):
+        ticker_obj = yf.Ticker(ticker)
+        try:
+            info = ticker_obj.info or {}
+        except Exception:
+            info = {}
+            
+        df = pattern_engine.download_stock_data(ticker, period="2y")
+        
+    if df.empty or len(df) < 20:
+        st.error(f"Could not load market data for ticker '{ticker}'. Please verify symbol.")
+        return
+        
+    df = pattern_engine.add_indicators(df)
+    latest = df.iloc[-1]
+    prev = df.iloc[-2] if len(df) > 1 else latest
+    
+    company_name = info.get("shortName") or info.get("longName") or ticker
+    exchange = format_exchange_name(info)
+    currency = info.get("currency") or "USD"
+    
+    latest_price = latest['Close']
+    price_change = latest['Close'] - prev['Close']
+    price_pct = (price_change / prev['Close']) * 100
+    
+    change_color = "#38df88" if price_change >= 0 else "#ef4444"
+    change_sign = "+" if price_change >= 0 else ""
+    
+    latest_date_str = str(latest['Date'])[:10] if 'Date' in latest else "Latest Close"
+    
+    # 1. Big Header Banner (Matching User Screenshot Layout)
+    st.markdown(f"""
+    <div style="margin-top: 10px; margin-bottom: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-end;">
+            <div>
+                <h1 style="margin: 0; font-size: 2.3rem; font-weight: 800; color: #f8fafc; font-family: sans-serif;">{company_name} ({ticker})</h1>
+                <span style="color: #94a3b8; font-size: 0.95rem; font-weight: 500;">{exchange}: {ticker} · Real-Time Price · {currency}</span>
+            </div>
+        </div>
+        <div style="margin-top: 12px; display: flex; align-items: baseline; gap: 12px;">
+            <span style="font-size: 3rem; font-weight: 800; color: #ffffff; letter-spacing: -0.02em;">${latest_price:.2f}</span>
+            <span style="font-size: 1.5rem; font-weight: 700; color: {change_color};">{change_sign}${abs(price_change):.2f} ({change_sign}{price_pct:.2f}%)</span>
+            <span style="color: #94a3b8; font-size: 0.85rem;">At close: {latest_date_str}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # --- ABOUT SECTION ---
+    description = info.get("longBusinessSummary") or ""
+    industry = info.get("industry") or "n/a"
+    sector = info.get("sector") or "n/a"
+    employees = info.get("fullTimeEmployees")
+    website = info.get("website") or ""
+
+    if description or industry != "n/a" or sector != "n/a":
+        st.markdown('<div class="card" style="margin-bottom: 25px;">', unsafe_allow_html=True)
+        st.markdown(f'<div class="card-title">About {company_name} ({ticker})</div>', unsafe_allow_html=True)
+        
+        col_about_text, col_about_meta = st.columns([3, 2])
+        with col_about_text:
+            if description:
+                st.markdown(f"""
+                <p style="color: #cbd5e1; font-size: 0.95rem; line-height: 1.6; margin-top: 5px;">
+                    {description}
+                </p>
+                """, unsafe_allow_html=True)
+        with col_about_meta:
+            meta_rows = [
+                ("Industry", industry),
+                ("Sector", sector),
+            ]
+            if employees:
+                meta_rows.append(("Employees", f"{employees:,}"))
+            meta_rows.append(("Stock Exchange", exchange))
+            meta_rows.append(("Ticker Symbol", ticker))
+            if website:
+                meta_rows.append(("Website", website))
+
+            for label, val in meta_rows:
+                if label == "Website":
+                    st.markdown(f"""
+                    <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #334155; padding: 8px 0; font-size: 13px;">
+                        <span style="color: #94a3b8; font-weight: 600;">{label}</span>
+                        <a href="{val}" target="_blank" style="color: #60a5fa; font-weight: 700; text-decoration: none;">{val}</a>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #334155; padding: 8px 0; font-size: 13px;">
+                        <span style="color: #94a3b8; font-weight: 600;">{label}</span>
+                        <span style="color: #f8fafc; font-weight: 700;">{val}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # 2. Main Page Layout Tabs
+    tab_overview, tab_financials, tab_technicals, tab_signals, tab_backtest = st.tabs([
+        " Overview", 
+        "💰 Financial Performance",
+        "📈 Technical Indicators", 
+        "🔍 Pattern Signals", 
+        "🧪 Strategy Backtest"
+    ])
+    
+    # TAB 1: OVERVIEW (Matching User Screenshot Layout)
+    with tab_overview:
+        col_stats, col_chart = st.columns([2, 3])
+        
+        with col_stats:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.markdown('<div class="card-title">Key Statistics</div>', unsafe_allow_html=True)
+            
+            # Format Statistics
+            market_cap_str = format_large_number(info.get("marketCap"))
+            volume_str = f"{int(latest['Volume']):,}"
+            open_str = f"${latest['Open']:.2f}"
+            prev_close_str = f"${prev['Close']:.2f}"
+            day_range_str = f"${latest['Low']:.2f} - ${latest['High']:.2f}"
+            
+            wk_low = info.get('fiftyTwoWeekLow') or df['Low'].min()
+            wk_high = info.get('fiftyTwoWeekHigh') or df['High'].max()
+            fifty_two_range = f"${wk_low:.2f} - ${wk_high:.2f}"
+            
+            pe_str = f"{info.get('trailingPE'):.2f}" if info.get('trailingPE') else "n/a"
+            fwd_pe_str = f"{info.get('forwardPE'):.2f}" if info.get('forwardPE') else "n/a"
+            beta_str = f"{info.get('beta'):.2f}" if info.get('beta') else "n/a"
+            shares_out_str = format_large_number(info.get('sharesOutstanding'))
+            
+            rsi_val = latest['RSI_14']
+            rsi_str = f"{rsi_val:.1f} ({'Oversold' if rsi_val < 30 else 'Overbought' if rsi_val > 70 else 'Neutral'})" if not pd.isna(rsi_val) else "n/a"
+            sma_50_str = f"${latest['SMA_50']:.2f}" if not pd.isna(latest['SMA_50']) else "n/a"
+            sma_200_str = f"${latest['SMA_200']:.2f}" if not pd.isna(latest['SMA_200']) else "n/a"
+            
+            stats_items = [
+                ("Market Cap", market_cap_str, "Volume", volume_str),
+                ("Open", open_str, "Previous Close", prev_close_str),
+                ("Day's Range", day_range_str, "52-Week Range", fifty_two_range),
+                ("PE Ratio", pe_str, "Forward PE", fwd_pe_str),
+                ("Shares Out", shares_out_str, "Beta", beta_str),
+                ("Wilder's RSI (14)", rsi_str, "50-Day SMA", sma_50_str),
+                ("200-Day SMA", sma_200_str, "Volume MA (20)", f"{int(latest['Volume_MA_20']):,}" if not pd.isna(latest['Volume_MA_20']) else "n/a"),
+            ]
+            
+            for label1, val1, label2, val2 in stats_items:
+                st.markdown(f"""
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #334155; padding: 10px 0; font-size: 13px;">
+                    <div style="display: flex; justify-content: space-between; width: 48%;">
+                        <span style="color: #94a3b8; font-weight: 500;">{label1}</span>
+                        <span style="color: #f8fafc; font-weight: 700;">{val1}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; width: 48%;">
+                        <span style="color: #94a3b8; font-weight: 500;">{label2}</span>
+                        <span style="color: #f8fafc; font-weight: 700;">{val2}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        with col_chart:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.markdown('<div class="card-title">Interactive Price Chart</div>', unsafe_allow_html=True)
+            
+            tf = st.radio("Timeframe", ["1M", "3M", "6M", "1Y", "2Y"], index=3, horizontal=True, key="tf_select")
+            tf_days = {"1M": 22, "3M": 65, "6M": 126, "1Y": 252, "2Y": len(df)}[tf]
+            
+            chart_data = df.iloc[-tf_days:].copy()
+            if 'Date' in chart_data.columns:
+                chart_data['Date_Str'] = chart_data['Date'].astype(str).str[:10]
+                chart_data.set_index('Date_Str', inplace=True)
+                
+            st.line_chart(chart_data[['Close']])
+            st.markdown('</div>', unsafe_allow_html=True)
+    # TAB 2: FINANCIAL PERFORMANCE
+    with tab_financials:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">Financial Performance</div>', unsafe_allow_html=True)
+
+        fin_view = st.radio("View", ["Annual", "Quarterly"], horizontal=True, key="fin_view_select")
+
+        try:
+            if fin_view == "Annual":
+                income_stmt = ticker_obj.income_stmt
+            else:
+                income_stmt = ticker_obj.quarterly_income_stmt
+
+            if income_stmt is not None and not income_stmt.empty:
+                # Extract Revenue and Net Income rows
+                revenue_row = None
+                earnings_row = None
+
+                for label in ["Total Revenue", "TotalRevenue", "Revenue"]:
+                    if label in income_stmt.index:
+                        revenue_row = income_stmt.loc[label]
+                        break
+
+                for label in ["Net Income", "NetIncome", "Net Income Common Stockholders"]:
+                    if label in income_stmt.index:
+                        earnings_row = income_stmt.loc[label]
+                        break
+
+                if revenue_row is not None or earnings_row is not None:
+                    # Build a clean DataFrame for the chart
+                    chart_dict = {}
+                    if revenue_row is not None:
+                        chart_dict["Revenue"] = revenue_row
+                    if earnings_row is not None:
+                        chart_dict["Earnings"] = earnings_row
+
+                    fin_df = pd.DataFrame(chart_dict)
+                    # Columns are dates - sort chronologically
+                    fin_df.index = pd.to_datetime(fin_df.index)
+                    fin_df = fin_df.sort_index()
+
+                    if fin_view == "Annual":
+                        fin_df.index = fin_df.index.strftime("%Y")
+                    else:
+                        fin_df.index = fin_df.index.strftime("%Y Q") + ((pd.to_datetime(fin_df.index).month - 1) // 3 + 1).astype(str)
+
+                    st.bar_chart(fin_df)
+
+                    # Show raw data table below chart
+                    display_df = fin_df.copy()
+                    for col in display_df.columns:
+                        display_df[col] = display_df[col].apply(lambda x: format_large_number(x) if pd.notna(x) else "n/a")
+                    st.table(display_df)
+                else:
+                    st.info(f"Revenue / Earnings data not available for {ticker}.")
+            else:
+                st.info(f"Financial statement data not available for {ticker}.")
+        except Exception as e:
+            st.warning(f"Could not load financial data: {e}")
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # TAB 3: TECHNICAL INDICATORS
+    with tab_technicals:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">Technical Moving Averages & RSI</div>', unsafe_allow_html=True)
+        
+        tech_chart_df = df.copy()
+        if 'Date' in tech_chart_df.columns:
+            tech_chart_df['Date_Str'] = tech_chart_df['Date'].astype(str).str[:10]
+            tech_chart_df.set_index('Date_Str', inplace=True)
+            
+        st.write("**Price & Moving Averages (50-Day & 200-Day SMA)**")
+        price_cols = [c for c in ['Close', 'SMA_50', 'SMA_200'] if c in tech_chart_df.columns]
+        st.line_chart(tech_chart_df[price_cols])
+        
+        st.write("---")
+        st.write("**Wilder's 14-Period RSI**")
+        if 'RSI_14' in tech_chart_df.columns:
+            st.line_chart(tech_chart_df[['RSI_14']])
+            st.caption("RSI < 30 indicates Oversold / Reversal Support; RSI > 70 indicates Overbought / Extension.")
+            
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+    # TAB 3: PATTERN SIGNALS
+    with tab_signals:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">Recent Candlestick Setup Reversals (Last 30 Days)</div>', unsafe_allow_html=True)
+        
+        with st.spinner("Scanning for recent setup candles..."):
+            recent_signals = pattern_engine.scan_ticker_for_signals(ticker, days_to_scan=30)
+            
+        if not recent_signals:
+            st.info(f"No Hammer or Hanging Man reversal setups detected for {ticker} over the last 30 trading days.")
+        else:
+            sig_display = []
+            for s in recent_signals:
+                sig_display.append({
+                    "Setup Date": str(s["day1_date"])[:10],
+                    "Pattern": s["pattern_type"],
+                    "Confidence Score": f"{s['confidence_score']:.1f}/100",
+                    "RSI (14)": f"{s['rsi_14']:.1f}",
+                    "Volume Mult": f"{s['vol_mult']:.2f}x",
+                    "Day 2 Confirmation": "✅ Confirmed" if s["confirmed"] else "❌ Unconfirmed",
+                    "Day 3 Open": f"${s['day3_open']:.2f}" if s.get("day3_open") else "N/A"
+                })
+            st.table(pd.DataFrame(sig_display))
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # TAB 4: STRATEGY BACKTEST
+    with tab_backtest:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown(f'<div class="card-title">2-Year Strategy Backtest Performance for {ticker}</div>', unsafe_allow_html=True)
+        
+        with st.spinner(f"Simulating historical strategy execution for {ticker}..."):
+            bt_res = backtest.run_backtest(ticker, period="2y")
+            
+        if bt_res["total_trades"] == 0:
+            st.warning(f"No trades were triggered for {ticker} under strict 3-day confirmation rules in the last 2 years.")
+        else:
+            bc1, bc2, bc3, bc4 = st.columns(4)
+            with bc1:
+                st.markdown(f'<div class="metric-value">{bt_res["total_trades"]}</div>', unsafe_allow_html=True)
+                st.markdown('<div class="metric-label">Total Trades</div>', unsafe_allow_html=True)
+            with bc2:
+                st.markdown(f'<div class="metric-value">{bt_res["win_rate"]:.2%}</div>', unsafe_allow_html=True)
+                st.markdown('<div class="metric-label">Strategy Win Rate</div>', unsafe_allow_html=True)
+            with bc3:
+                st.markdown(f'<div class="metric-value">{bt_res["avg_return"]:.2%}</div>', unsafe_allow_html=True)
+                st.markdown('<div class="metric-label">Average Return</div>', unsafe_allow_html=True)
+            with bc4:
+                st.markdown(f'<div class="metric-value">{bt_res["wins"]} W / {bt_res["losses"]} L</div>', unsafe_allow_html=True)
+                st.markdown('<div class="metric-label">Win / Loss Ratio</div>', unsafe_allow_html=True)
+                
+            st.write("---")
+            st.write("**Historical Strategy Trade Log (Zero Lookahead Bias)**")
+            bt_df = pd.DataFrame(bt_res["trades"])
+            if not bt_df.empty:
+                bt_df["entry_price"] = bt_df["entry_price"].map(lambda x: f"${x:.2f}")
+                bt_df["stop_loss"] = bt_df["stop_loss"].map(lambda x: f"${x:.2f}")
+                bt_df["profit_target"] = bt_df["profit_target"].map(lambda x: f"${x:.2f}")
+                bt_df["exit_price"] = bt_df["exit_price"].map(lambda x: f"${x:.2f}")
+                bt_df["return"] = bt_df["return"].map(lambda x: f"{x:.2%}")
+                
+                bt_df.columns = [
+                    "Setup Date", "Pattern", "Score", "Entry Date", "Entry Price",
+                    "Stop Loss", "Profit Target", "Exit Date", "Exit Price", "Exit Reason", "Return"
+                ]
+                st.dataframe(bt_df, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
 def render_management_dashboard(subscriber, token):
+    if st.session_state.get("selected_ticker_detail"):
+        render_stock_detail_page(st.session_state.selected_ticker_detail, subscriber, token)
+        return
+
     st.markdown(f'<div class="main-title">🔧 Sentinel Control Panel</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="subtitle">Managing: <strong>{subscriber["email"]}</strong></div>', unsafe_allow_html=True)
     
@@ -393,15 +783,13 @@ def render_management_dashboard(subscriber, token):
             watchlist = database.get_watchlist(subscriber["id"])
             
             if watchlist:
-                st.write("Click the red trash bin next to any ticker to delete it:")
+                st.write("Click any stock button to inspect full market data, or click the red trash bin to delete it:")
                 for ticker in watchlist:
                     wcol1, wcol2 = st.columns([4, 1])
                     with wcol1:
-                        st.markdown(f"""
-                        <div style="background-color: #334155; padding: 6px 12px; border-radius: 6px; font-weight: 700; margin-bottom: 6px; border: 1px solid #475569;">
-                            📈 {ticker}
-                        </div>
-                        """, unsafe_allow_html=True)
+                        if st.button(f"📈  {ticker}", key=f"view_{ticker}", use_container_width=True):
+                            st.session_state.selected_ticker_detail = ticker
+                            st.rerun()
                     with wcol2:
                         if st.button("🗑️", key=f"del_{ticker}", use_container_width=True):
                             database.remove_watchlist_ticker(subscriber["id"], ticker)
@@ -487,18 +875,12 @@ def render_management_dashboard(subscriber, token):
                     "day2_close": 125.0
                 }
                 
-                # Force reload notifier to guarantee latest function signatures are used
-                importlib.reload(notifier)
                 with st.spinner("Running optional AI analyst check..."):
                     ai_analysis = analyst_engine.analyze_signal(mock_signal)
                 if ai_analysis:
                     mock_signal["ai_analysis"] = ai_analysis
                 email_html = notifier.format_alert_email(mock_signal, token)
-                send_alert_params = inspect.signature(notifier.simulate_send_alert).parameters
-                if "ticker" in send_alert_params or len(send_alert_params) >= 3:
-                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], email_html, mock_ticker)
-                else:
-                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], email_html)
+                real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], email_html, mock_ticker)
                 
                 if real_sent:
                     st.success(f"✅ {status_msg}")
@@ -555,9 +937,15 @@ def render_management_dashboard(subscriber, token):
                     st.write("### Preview Alert Email Layout")
                     st.write("Select a setup from the list below to inspect the generated beginner-friendly email layout sent to users:")
                     
-                    options = [f"{s['ticker']} - {s['pattern_type']} ({s['day1_date'].strftime('%Y-%m-%d') if hasattr(s['day1_date'], 'strftime') else str(s['day1_date'])[:10]})" for s in signals]
-                    selected_opt = st.selectbox("Select Signal to Preview", options)
-                    selected_idx = options.index(selected_opt)
+                    selected_idx = st.selectbox(
+                        "Select Signal to Preview",
+                        options=list(range(len(signals))),
+                        format_func=lambda i: (
+                            f"{signals[i]['ticker']} - {signals[i]['pattern_type']} "
+                            f"({signals[i]['day1_date'].strftime('%Y-%m-%d') if hasattr(signals[i]['day1_date'], 'strftime') else str(signals[i]['day1_date'])[:10]}) "
+                            f"[Score: {signals[i]['confidence_score']:.1f}]"
+                        )
+                    )
                     selected_signal = signals[selected_idx]
                     
                     email_html = notifier.format_alert_email(selected_signal, token)
