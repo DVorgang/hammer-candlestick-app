@@ -1307,11 +1307,28 @@ def render_management_dashboard(subscriber, token):
             else:
                 g_uptime_str = "Active"
 
-        # Action Control Buttons
-        st.write("#### 🕹️ On-Demand Manual Scans")
-        sc1, sc2 = st.columns([1, 1])
-        with sc1:
-            if st.button("📊 Run Instant Technical Scan", type="primary", use_container_width=True):
+        # Section 1 Header
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">⚡ Scanner Control Hub & Auto-Schedulers</div>', unsafe_allow_html=True)
+        st.write("Manage your **Candlestick Technical Scanner** and **AI Growth Catalyst Scanner** below. Choose to run scans on-demand or enable automatic twice-daily background scheduling:")
+
+        col_tech, col_growth = st.columns(2)
+        
+        # ------------------- COLUMN 1: TECHNICAL SCANNER -------------------
+        with col_tech:
+            st.markdown("""
+            <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px;">
+                <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.1rem;">📊 Candlestick Technical Reversal Engine</h4>
+                <p style="color: #94a3b8; font-size: 0.85rem; line-height: 1.4; margin-bottom: 12px;">
+                    Scans price charts & volume over the past 3 trading days for confirmed 
+                    <strong style="color: #38df88;">Hammer Buy Reversals</strong> (RSI &lt; 50) and 
+                    <strong style="color: #f87171;">Hanging Man Risk Warnings</strong>.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.write("**1. Run On-Demand:**")
+            if st.button("▶️ Run Instant Technical Scan", type="primary", use_container_width=True, key="btn_tech_manual"):
                 with st.spinner("Scanning watchlist for Hammer & Hanging Man pattern setups..."):
                     start_t = time.time()
                     daily_scanner.run_daily_scan(days_to_scan=3, trigger_type="manual")
@@ -1319,8 +1336,40 @@ def render_management_dashboard(subscriber, token):
                     st.session_state.pending_toast = f"Technical scan complete! Took {dur:.2f}s."
                     st.rerun()
 
-        with sc2:
-            if st.button("🚀 Run Instant Growth Catalyst Scan", type="primary", use_container_width=True):
+            st.write("**2. Twice-Daily Auto-Scheduler:**")
+            toggle_label = "🛑 Stop Technical Auto-Scheduler" if is_sched_active else "⚡ Start Technical Auto-Scheduler"
+            btn_type = "secondary" if is_sched_active else "primary"
+            if st.button(toggle_label, type=btn_type, use_container_width=True, key="btn_tech_sched"):
+                new_state = not is_sched_active
+                database.set_scheduler_active(new_state)
+                status_txt = "started" if new_state else "stopped"
+                st.session_state.pending_toast = f"Technical Auto-Scheduler has been {status_txt}."
+                st.rerun()
+
+            t_status_color = "#38df88" if is_sched_active else "#f87171"
+            t_status_label = f"🟢 Active ({uptime_str})" if is_sched_active else "🔴 Stopped"
+            st.markdown(f"""
+            <div style="background: #090d16; padding: 14px; border-radius: 8px; border: 1px solid #1e293b; margin-top: 14px;">
+                <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">AUTOMATED SCHEDULER STATUS</span>
+                <div style="color: {t_status_color}; font-size: 1.1rem; font-weight: 800; margin-top: 4px;">{t_status_label}</div>
+                <div style="color: #cbd5e1; font-size: 0.85rem; margin-top: 6px;">Last Executed: <strong style="color: #f8fafc;">{t_last_time}</strong> ({t_last_dur})</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # ------------------- COLUMN 2: GROWTH CATALYST SCANNER -------------------
+        with col_growth:
+            st.markdown("""
+            <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px;">
+                <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.1rem;">🚀 AI Growth & Contract Catalyst Engine</h4>
+                <p style="color: #94a3b8; font-size: 0.85rem; line-height: 1.4; margin-bottom: 12px;">
+                    Scans real-time news headlines & volume surges (&ge; 2.0x) using <strong style="color: #60a5fa;">Groq Llama 3.3-70B</strong> 
+                    to detect contract wins, earnings beats, and FDA approvals (&ge; 7.0/10).
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.write("**1. Run On-Demand:**")
+            if st.button("🚀 Run Instant Growth Catalyst Scan", type="primary", use_container_width=True, key="btn_growth_manual"):
                 with st.spinner("Scanning volume surges & news headlines with Groq Llama 3.3-70B..."):
                     start_t = time.time()
                     growth_scanner.run_growth_scan(trigger_type="manual_ui")
@@ -1328,63 +1377,23 @@ def render_management_dashboard(subscriber, token):
                     st.session_state.pending_toast = f"Growth catalyst scan complete! Took {dur:.2f}s."
                     st.rerun()
 
-        st.markdown('---')
-        st.write("#### ⚡ Background Auto-Schedulers (Twice Daily Execution)")
-        
-        ac1, ac2 = st.columns(2)
-        with ac1:
-            toggle_label = "🛑 Stop Technical Auto-Scheduler" if is_sched_active else "⚡ Start Technical Auto-Scheduler"
-            btn_type = "secondary" if is_sched_active else "primary"
-            if st.button(toggle_label, type=btn_type, use_container_width=True):
-                new_state = not is_sched_active
-                database.set_scheduler_active(new_state)
-                status_txt = "started" if new_state else "stopped"
-                st.session_state.pending_toast = f"Technical Auto-Scheduler has been {status_txt}."
-                st.rerun()
-
-        with ac2:
+            st.write("**2. Twice-Daily Auto-Scheduler:**")
             g_toggle_label = "🛑 Stop Growth Auto-Scheduler" if is_growth_active else "🚀 Start Growth Auto-Scheduler"
             g_btn_type = "secondary" if is_growth_active else "primary"
-            if st.button(g_toggle_label, type=g_btn_type, use_container_width=True):
+            if st.button(g_toggle_label, type=g_btn_type, use_container_width=True, key="btn_growth_sched"):
                 g_new_state = not is_growth_active
                 database.set_growth_scheduler_active(g_new_state)
                 g_status_txt = "started" if g_new_state else "stopped"
                 st.session_state.pending_toast = f"Growth Auto-Scheduler has been {g_status_txt}."
                 st.rerun()
 
-        st.markdown('---')
-
-        # Live Metrics Counter Displays
-        tech_log = database.get_last_scan_log(trigger_prefix="manual") or database.get_last_scan_log(trigger_prefix="scheduled")
-        t_last_time = tech_log["timestamp"] if tech_log else "Never"
-        t_last_dur = f"{tech_log['duration_seconds']:.2f}s" if tech_log else "n/a"
-        t_tickers = tech_log["tickers_scanned"] if tech_log else 0
-
-        growth_log = database.get_last_scan_log(trigger_prefix="growth")
-        g_last_time = growth_log["timestamp"] if growth_log else "Never"
-        g_last_dur = f"{growth_log['duration_seconds']:.2f}s" if growth_log else "n/a"
-        g_tickers = growth_log["tickers_scanned"] if growth_log else 0
-
-        mc1, mc2 = st.columns(2)
-        with mc1:
-            t_status_color = "#38df88" if is_sched_active else "#f87171"
-            t_status_label = f"🟢 Active ({uptime_str})" if is_sched_active else "🔴 Stopped"
-            st.markdown(f"""
-            <div style="background: #0f172a; padding: 14px 18px; border-radius: 8px; border: 1px solid #334155;">
-                <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">📊 TECHNICAL SCANNER AUTO-SCHEDULER</span>
-                <div style="color: {t_status_color}; font-size: 1.1rem; font-weight: 800; margin-top: 4px;">{t_status_label}</div>
-                <div style="color: #cbd5e1; font-size: 0.85rem; margin-top: 6px;">Last Scan: <strong style="color: #f8fafc;">{t_last_time}</strong> ({t_last_dur})</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-        with mc2:
             g_status_color = "#38df88" if is_growth_active else "#f87171"
             g_status_label = f"🟢 Active ({g_uptime_str})" if is_growth_active else "🔴 Stopped"
             st.markdown(f"""
-            <div style="background: #0f172a; padding: 14px 18px; border-radius: 8px; border: 1px solid #334155;">
-                <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">🚀 GROWTH CATALYST AUTO-SCHEDULER</span>
+            <div style="background: #090d16; padding: 14px; border-radius: 8px; border: 1px solid #1e293b; margin-top: 14px;">
+                <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">AUTOMATED SCHEDULER STATUS</span>
                 <div style="color: {g_status_color}; font-size: 1.1rem; font-weight: 800; margin-top: 4px;">{g_status_label}</div>
-                <div style="color: #cbd5e1; font-size: 0.85rem; margin-top: 6px;">Last Scan: <strong style="color: #f8fafc;">{g_last_time}</strong> ({g_last_dur})</div>
+                <div style="color: #cbd5e1; font-size: 0.85rem; margin-top: 6px;">Last Executed: <strong style="color: #f8fafc;">{g_last_time}</strong> ({g_last_dur})</div>
             </div>
             """, unsafe_allow_html=True)
 
