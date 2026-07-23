@@ -1121,27 +1121,69 @@ def render_management_dashboard(subscriber, token):
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown('<div class="card-title">Manage Watchlist</div>', unsafe_allow_html=True)
         
-        # Simplified Inline Ticker Adder Bar
-        with st.form("add_ticker_form_inline", clear_on_submit=True):
+        # Smart Searchable Autocomplete Ticker Bar
+        POPULAR_STOCKS = [
+            "Search or select stock...",
+            "AMD - Advanced Micro Devices, Inc.",
+            "NVDA - NVIDIA Corporation",
+            "PLTR - Palantir Technologies Inc.",
+            "TSLA - Tesla, Inc.",
+            "AAPL - Apple Inc.",
+            "MSFT - Microsoft Corporation",
+            "AMZN - Amazon.com, Inc.",
+            "GOOGL - Alphabet Inc.",
+            "META - Meta Platforms, Inc.",
+            "NFLX - Netflix, Inc.",
+            "SMCI - Super Micro Computer, Inc.",
+            "INGN - Inogen, Inc.",
+            "LEDS - SemiLEDs Corporation",
+            "RKLB - Rocket Lab USA, Inc.",
+            "SOFI - SoFi Technologies, Inc.",
+            "AVGO - Broadcom Inc.",
+            "INTC - Intel Corporation",
+            "MU - Micron Technology, Inc.",
+            "CMCSA - Comcast Corporation",
+            "MNTS - Momentus Inc.",
+            "✏️ Type custom symbol..."
+        ]
+
+        with st.form("add_ticker_form_smart", clear_on_submit=True):
             fcol1, fcol2 = st.columns([4, 1])
             with fcol1:
-                new_ticker = st.text_input("Add New Ticker", placeholder="Enter ticker symbol (e.g. AMD, NVDA, PLTR, TSLA)", label_visibility="collapsed").strip().upper()
+                selected_option = st.selectbox(
+                    "Search Stock",
+                    options=POPULAR_STOCKS,
+                    index=0,
+                    label_visibility="collapsed"
+                )
+                
+                # If user selects custom symbol option or types custom text
+                custom_ticker = ""
+                if selected_option == "✏️ Type custom symbol...":
+                    custom_ticker = st.text_input("Enter Symbol", placeholder="Type unlisted ticker (e.g. ADVB, BABA, SPY)", label_visibility="collapsed").strip().upper()
+
             with fcol2:
                 add_btn = st.form_submit_button("➕ Add Stock", type="primary", use_container_width=True)
-                
+
             if add_btn:
-                if not new_ticker:
-                    st.error("Please enter a ticker symbol.")
-                elif new_ticker in watchlist:
-                    st.info(f"{new_ticker} is already in your watchlist.")
+                target_symbol = ""
+                if selected_option == "✏️ Type custom symbol...":
+                    target_symbol = custom_ticker
+                elif selected_option and selected_option != "Search or select stock...":
+                    target_symbol = selected_option.split(" - ")[0].strip().upper()
+
+                if not target_symbol:
+                    st.error("Please select a stock or enter a valid ticker symbol.")
+                elif target_symbol in watchlist:
+                    st.info(f"{target_symbol} is already in your watchlist.")
                 else:
-                    success = database.add_watchlist_ticker(subscriber["id"], new_ticker)
+                    success = database.add_watchlist_ticker(subscriber["id"], target_symbol)
                     if success:
-                        st.toast(f"Added {new_ticker} to watchlist!", icon="⭐")
+                        st.toast(f"Added {target_symbol} to watchlist!", icon="⭐")
                         st.rerun()
                     else:
                         st.error("Failed to add ticker.")
-                        
+
         st.markdown('<div style="margin-top: 20px;"></div>', unsafe_allow_html=True)
 
         if not watchlist:
