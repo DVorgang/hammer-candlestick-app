@@ -134,7 +134,7 @@ def scan_ticker_for_growth_catalyst(ticker, min_vol_mult=2.0):
         "vol_20ma": vol_data["vol_20ma"],
         "has_volume_surge": has_vol_surge,
         "has_keyword_news": has_keyword_news,
-        "should_evaluate_ai": has_vol_surge or has_keyword_news,
+        "should_evaluate_ai": has_vol_surge and has_keyword_news,
         "news": news_items
     }
 
