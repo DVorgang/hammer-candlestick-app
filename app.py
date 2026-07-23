@@ -85,6 +85,44 @@ st.markdown("""
         font-size: 0.9rem;
         color: #94a3b8;
     }
+    
+    /* Premium Ocean Blue Buttons & Tabs Palette */
+    button[kind="primary"] {
+        background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%) !important;
+        border: none !important;
+        color: #ffffff !important;
+        font-weight: 600 !important;
+        border-radius: 8px !important;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25) !important;
+        transition: all 0.2s ease !important;
+    }
+    button[kind="primary"]:hover {
+        background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%) !important;
+        box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4) !important;
+        transform: translateY(-1px) !important;
+    }
+    
+    button[kind="secondary"] {
+        background: #1e293b !important;
+        border: 1px solid #334155 !important;
+        color: #f8fafc !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        transition: all 0.2s ease !important;
+    }
+    button[kind="secondary"]:hover {
+        border-color: #3b82f6 !important;
+        color: #60a5fa !important;
+        background: #334155 !important;
+    }
+
+    [data-baseweb="tab-highlight"] {
+        background-color: #38bdf8 !important;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: #38bdf8 !important;
+        font-weight: 700 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
