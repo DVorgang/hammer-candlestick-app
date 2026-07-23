@@ -716,31 +716,31 @@ def render_stock_detail_page(ticker, subscriber, token):
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown('<div class="card-title">Financial Performance</div>', unsafe_allow_html=True)
 
-        fin_view = st.radio("View", ["Annual", "Quarterly"], horizontal=True, key="fin_view_select")
+        fin_view = st.radio("View", ["Annual", "Quarterly", "TTM"], horizontal=True, key="fin_view_select")
 
         try:
-            if fin_view == "Annual":
-                income_stmt = ticker_obj.income_stmt
+            if fin_view in ["Annual", "TTM"]:
+                stmt = ticker_obj.income_stmt
+                q_stmt = ticker_obj.quarterly_income_stmt
             else:
-                income_stmt = ticker_obj.quarterly_income_stmt
+                stmt = ticker_obj.quarterly_income_stmt
 
-            if income_stmt is not None and not income_stmt.empty:
-                # Extract Revenue and Net Income rows
+            if stmt is not None and not stmt.empty:
+                # Find Revenue and Net Income rows
                 revenue_row = None
                 earnings_row = None
 
-                for label in ["Total Revenue", "TotalRevenue", "Revenue"]:
-                    if label in income_stmt.index:
-                        revenue_row = income_stmt.loc[label]
+                for label in ["Total Revenue", "Operating Revenue", "Revenue"]:
+                    if label in stmt.index:
+                        revenue_row = stmt.loc[label]
                         break
 
-                for label in ["Net Income", "NetIncome", "Net Income Common Stockholders"]:
-                    if label in income_stmt.index:
-                        earnings_row = income_stmt.loc[label]
+                for label in ["Net Income", "Net Income Common Stockholders", "Net Income Continuous Operations"]:
+                    if label in stmt.index:
+                        earnings_row = stmt.loc[label]
                         break
 
                 if revenue_row is not None or earnings_row is not None:
-                    # Build a clean DataFrame for the chart
                     chart_dict = {}
                     if revenue_row is not None:
                         chart_dict["Revenue"] = revenue_row
@@ -748,18 +748,109 @@ def render_stock_detail_page(ticker, subscriber, token):
                         chart_dict["Earnings"] = earnings_row
 
                     fin_df = pd.DataFrame(chart_dict)
-                    # Columns are dates - sort chronologically
                     fin_df.index = pd.to_datetime(fin_df.index)
                     fin_df = fin_df.sort_index()
 
                     if fin_view == "Annual":
                         fin_df.index = fin_df.index.strftime("%Y")
-                    else:
-                        fin_df.index = fin_df.index.strftime("%Y Q") + ((pd.to_datetime(fin_df.index).month - 1) // 3 + 1).astype(str)
+                    elif fin_view == "Quarterly":
+                        fin_df.index = fin_df.index.strftime("%Y Q") + ((fin_df.index.month - 1) // 3 + 1).astype(str)
+                    elif fin_view == "TTM":
+                        # Compute Trailing Twelve Months (TTM)
+                        if q_stmt is not None and not q_stmt.empty:
+                            q_rev = q_stmt.loc[revenue_row.name] if revenue_row.name in q_stmt.index else None
+                            q_net = q_stmt.loc[earnings_row.name] if earnings_row.name in q_stmt.index else None
+                            
+                            ttm_rev = q_rev.iloc[:4].sum() if q_rev is not None and len(q_rev) >= 4 else (revenue_row.iloc[0] if revenue_row is not None else 0)
+                            ttm_net = q_net.iloc[:4].sum() if q_net is not None and len(q_net) >= 4 else (earnings_row.iloc[0] if earnings_row is not None else 0)
+                            
+                            fin_df = pd.DataFrame({
+                                "Revenue": [ttm_rev],
+                                "Earnings": [ttm_net]
+                            }, index=["TTM (Trailing 12 Mo)"])
+                        else:
+                            fin_df.index = fin_df.index.strftime("%Y")
 
-                    st.bar_chart(fin_df)
+                    # 1. Generate Executive Narrative Summary Text (Matching Screenshot)
+                    if len(fin_df) > 0:
+                        latest_period = fin_df.index[-1]
+                        latest_rev = fin_df["Revenue"].iloc[-1] if "Revenue" in fin_df.columns else 0
+                        latest_net = fin_df["Earnings"].iloc[-1] if "Earnings" in fin_df.columns else 0
 
-                    # Show raw data table below chart
+                        rev_str = format_large_number(latest_rev)
+                        is_loss = latest_net < 0
+                        net_label = "losses were" if is_loss else "net income was"
+                        net_str = format_large_number(abs(latest_net))
+                        if is_loss:
+                            net_str = f"-{net_str}"
+
+                        summary_text = f"In {latest_period}, **{company_name}** recorded revenue of **{rev_str}**."
+
+                        if len(fin_df) >= 2:
+                            prev_period = fin_df.index[-2]
+                            prev_rev = fin_df["Revenue"].iloc[-2] if "Revenue" in fin_df.columns else 0
+                            prev_net = fin_df["Earnings"].iloc[-2] if "Earnings" in fin_df.columns else 0
+
+                            if prev_rev and prev_rev != 0:
+                                rev_pct = ((latest_rev - prev_rev) / abs(prev_rev)) * 100
+                                rev_dir = "an increase" if rev_pct >= 0 else "a decrease"
+                                summary_text += f" This represents {rev_dir} of **{abs(rev_pct):.2f}%** compared to {prev_period}'s {format_large_number(prev_rev)}."
+
+                            if prev_net and prev_net != 0:
+                                net_pct = ((latest_net - prev_net) / abs(prev_net)) * 100
+                                net_dir = "higher" if net_pct >= 0 else "lower"
+                                summary_text += f" {net_label.capitalize()} **{net_str}** ({abs(net_pct):.2f}% {net_dir} than {prev_period})."
+                            else:
+                                summary_text += f" {net_label.capitalize()} **{net_str}**."
+
+                        st.markdown(f"""
+                        <div style="background-color: #1e293b; border-left: 4px solid #38bdf8; padding: 14px; border-radius: 4px; margin-bottom: 20px; color: #cbd5e1; font-size: 0.95rem; line-height: 1.6;">
+                            {summary_text}
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    # 2. Plotly Grouped Bar Chart (Matching Screenshot Style)
+                    fig_fin = go.Figure()
+                    
+                    if "Revenue" in fin_df.columns:
+                        fig_fin.add_trace(go.Bar(
+                            x=list(fin_df.index),
+                            y=fin_df["Revenue"],
+                            name="Revenue",
+                            marker_color="#2563eb",
+                            hovertemplate="%{x}<br>Revenue: <b>$%{y:,.0f}</b><extra></extra>"
+                        ))
+                    if "Earnings" in fin_df.columns:
+                        fig_fin.add_trace(go.Bar(
+                            x=list(fin_df.index),
+                            y=fin_df["Earnings"],
+                            name="Earnings",
+                            marker_color="#f87171",
+                            hovertemplate="%{x}<br>Earnings: <b>$%{y:,.0f}</b><extra></extra>"
+                        ))
+
+                    fig_fin.update_layout(
+                        barmode="group",
+                        template="plotly_dark",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        margin=dict(l=10, r=20, t=30, b=10),
+                        height=360,
+                        legend=dict(
+                            orientation="h",
+                            yanchor="bottom",
+                            y=1.02,
+                            xanchor="left",
+                            x=0
+                        ),
+                        xaxis=dict(showgrid=False),
+                        yaxis=dict(showgrid=True, gridcolor="#334155", side="right")
+                    )
+
+                    st.plotly_chart(fig_fin, use_container_width=True, config={'displayModeBar': False})
+
+                    # 3. Formatted Table View Below Chart
+                    st.write("**Financial Statements Data Breakdown**")
                     display_df = fin_df.copy()
                     for col in display_df.columns:
                         display_df[col] = display_df[col].apply(lambda x: format_large_number(x) if pd.notna(x) else "n/a")
