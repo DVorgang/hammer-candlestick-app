@@ -84,6 +84,7 @@ def _run_background_scheduler_loop():
                     last_run = state.get("last_run_timestamp")
                     if _should_trigger_market_slot_scan(last_run):
                         logging.info("⏰ Triggering Scheduled Technical Reversal Scan (Market Schedule: 9:00 AM / 4:30 PM EST)")
+                        database.update_scheduler_last_run("technical")
                         daily_scanner.run_daily_scan(days_to_scan=3, trigger_type="scheduled")
 
                 # 2. AI Growth Catalyst Auto-Scheduler (Market Schedule: 9:00 AM & 4:30 PM EST)
@@ -91,6 +92,7 @@ def _run_background_scheduler_loop():
                     g_last_run = state.get("growth_last_run_timestamp")
                     if _should_trigger_market_slot_scan(g_last_run):
                         logging.info("⏰ Triggering Scheduled AI Growth Catalyst Scan (Market Schedule: 9:00 AM / 4:30 PM EST)")
+                        database.update_scheduler_last_run("growth")
                         growth_scanner.run_growth_scan(trigger_type="scheduled")
 
         except Exception as e:
@@ -98,12 +100,14 @@ def _run_background_scheduler_loop():
         time.sleep(60)
 
 
+@st.cache_resource
 def init_scheduler_daemon():
     global _scheduler_thread
     if _scheduler_thread is None or not _scheduler_thread.is_alive():
         _scheduler_thread = threading.Thread(target=_run_background_scheduler_loop, daemon=True)
         _scheduler_thread.start()
         logging.info("Auto-Scheduler background daemon thread initialized.")
+    return True
 
 init_scheduler_daemon()
 

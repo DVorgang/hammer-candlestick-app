@@ -712,6 +712,26 @@ def get_all_alert_outcomes(limit=50, filter_technical_only=True):
         conn.close()
 
 
+def update_scheduler_last_run(scan_type="technical"):
+    """
+    Atomically updates last_run_timestamp or growth_last_run_timestamp BEFORE scan execution
+    to prevent duplicate concurrent scan triggers.
+    """
+    conn = get_db_connection()
+    try:
+        now_str = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+        with conn:
+            if scan_type == "growth":
+                conn.execute("UPDATE scheduler_state SET growth_last_run_timestamp = ? WHERE id = 1;", (now_str,))
+            else:
+                conn.execute("UPDATE scheduler_state SET last_run_timestamp = ? WHERE id = 1;", (now_str,))
+        return True
+    except sqlite3.Error as e:
+        logging.error(f"Database error updating scheduler last run: {e}")
+        return False
+    finally:
+        conn.close()
+
 def record_scan_log(duration_seconds, tickers_scanned, signals_found, alerts_sent, trigger_type="manual"):
     """
     Records execution metrics of a scanner run.
@@ -737,6 +757,7 @@ def record_scan_log(duration_seconds, tickers_scanned, signals_found, alerts_sen
         return False
     finally:
         conn.close()
+
 
 def get_last_scan_log(trigger_prefix=None, exclude_prefix=None):
     """
