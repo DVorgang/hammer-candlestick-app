@@ -232,6 +232,205 @@ def format_alert_email(signal, token, base_url="http://localhost:8501"):
 """
     return html_content
 
+
+def format_technical_digest_email(signals, token, base_url="http://localhost:8501"):
+    """
+    Formats a single, unified HTML email digest containing multiple watchlist technical reversal signals
+    (Hammer Buy Reversals & Hanging Man Risk Warnings).
+    Used when 2 or more watchlist stocks trigger reversal signals simultaneously.
+    """
+    if not signals:
+        return ""
+        
+    manage_url = f"{base_url}/?token={token}"
+    unsubscribe_url = f"{base_url}/?token={token}&unsubscribe=true"
+    
+    tickers_str = ", ".join(s.get("ticker", "") for s in signals)
+    
+    cards_html = ""
+    for idx, signal in enumerate(signals):
+        ticker = html.escape(str(signal.get("ticker", "TICKER")))
+        pattern = html.escape(str(signal.get("pattern_type", "Reversal")))
+        conf = float(signal.get("confidence_score") or 85.0)
+        rsi = float(signal.get("rsi_14") or 30.0)
+        vol_mult = float(signal.get("vol_mult") or 1.5)
+        day2_close = float(signal.get("day2_close") or 0.0)
+        
+        is_hammer = "hammer" in pattern.lower()
+        badge_bg = "#dcfce7" if is_hammer else "#fee2e2"
+        badge_text = "#15803d" if is_hammer else "#b91c1c"
+        badge_icon = "🔨 Hammer Buy Signal" if is_hammer else "⚠️ Hanging Man Risk Warning"
+        border_col = "#bbf7d0" if is_hammer else "#fca5a5"
+        bg_col = "#f0fdf4" if is_hammer else "#fff5f5"
+        
+        ai = signal.get("ai_analysis") or {}
+        summary = html.escape(str(ai.get("headline_summary") or f"{pattern} pattern detected on {ticker} with RSI {rsi:.1f}."))
+        takeaway = html.escape(str(ai.get("plain_english_takeaway") or f"Monitor {ticker} for technical confirmation."))
+        key_drivers = "".join(f"<li>{html.escape(str(k))}</li>" for k in (ai.get("key_catalysts") or [f"Confirmed {pattern} candlestick", f"RSI 14 at {rsi:.1f}", f"Volume at {vol_mult:.2f}x avg"]))
+        risks = "".join(f"<li>{html.escape(str(r))}</li>" for r in (ai.get("risks") or ["Market volatility", "Wait for next session confirmation"]))
+        
+        cards_html += f"""
+        <!-- Watchlist Signal Card #{idx+1} -->
+        <div style="background-color: {bg_col}; border: 1px solid {border_col}; border-radius: 10px; padding: 18px; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #cbd5e1; padding-bottom: 8px; margin-bottom: 12px;">
+                <div style="font-size: 17px; font-weight: 800; color: #0f172a;">
+                    {ticker} — ${day2_close:.2f}
+                </div>
+                <span style="background-color: {badge_bg}; color: {badge_text}; font-size: 12px; font-weight: 800; padding: 3px 10px; border-radius: 9999px; border: 1px solid {border_col};">
+                    {badge_icon} ({conf:.0f}% Conf)
+                </span>
+            </div>
+            <div style="font-size: 13px; color: #475569; margin-bottom: 10px;">
+                RSI (14-Day): <strong style="color: #0f172a;">{rsi:.1f}</strong> | Volume Surge: <strong style="color: #15803d;">{vol_mult:.2f}x 20-Day MA</strong>
+            </div>
+            <p style="margin: 0 0 10px 0; font-size: 13px; line-height: 1.5; color: #1e293b; font-weight: 600;">
+                {summary}
+            </p>
+            <p style="margin: 0 0 4px 0; font-size: 12px; font-weight: 700; color: #15803d;">Technical Reversal Factors:</p>
+            <ul style="margin: 0 0 10px 0; padding-left: 18px; font-size: 12px; color: #334155; line-height: 1.4;">{key_drivers}</ul>
+            
+            <p style="margin: 0 0 4px 0; font-size: 12px; font-weight: 700; color: #991b1b;">Risk Factors & Stop-Loss:</p>
+            <ul style="margin: 0 0 10px 0; padding-left: 18px; font-size: 12px; color: #b91c1c; line-height: 1.4;">{risks}</ul>
+            
+            <p style="margin: 0; font-size: 12px; line-height: 1.4; color: #334155;"><strong>Analyst Takeaway:</strong> {takeaway}</p>
+        </div>
+        """
+
+    return f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05); color: #1a202c;">
+    
+    <!-- Top Header & Banner -->
+    <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 24px; border-radius: 10px; text-align: center; margin-bottom: 24px; color: #ffffff;">
+        <span style="display: inline-block; background-color: #38df88; color: #0f172a; font-size: 11px; font-weight: 800; text-transform: uppercase; padding: 4px 12px; border-radius: 9999px; letter-spacing: 0.05em; margin-bottom: 8px;">
+            📊 TradeRadar Watchlist Digest
+        </span>
+        <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #ffffff;">{len(signals)} Watchlist Technical Reversals</h1>
+        <p style="margin: 6px 0 0 0; font-size: 13px; color: #94a3b8;">Triggered Watchlist Stocks: {tickers_str}</p>
+    </div>
+
+    {cards_html}
+    
+    <!-- Footer -->
+    <div style="border-top: 1px solid #edf2f7; padding-top: 16px; text-align: center; font-size: 12px; color: #94a3b8;">
+        <p style="margin-bottom: 8px;">You are receiving this TradeRadar Technical Digest because {len(signals)} stocks on your watchlist triggered reversal patterns simultaneously.</p>
+        <p style="margin: 0;">
+            <a href="{manage_url}" style="color: #2563eb; text-decoration: underline; font-weight: 600;">Manage Preferences</a> 
+            &nbsp;|&nbsp; 
+            <a href="{unsubscribe_url}" style="color: #dc2626; text-decoration: underline; font-weight: 600;">Unsubscribe Completely</a>
+        </p>
+    </div>
+</div>
+"""
+
+
+def format_growth_digest_email(candidates, token, base_url="http://localhost:8501"):
+    """
+    Formats a single, unified HTML email digest containing up to 3 top-ranked growth catalyst setups.
+    Eliminates inbox clutter by consolidating multiple breakout alerts into one email.
+    """
+    if not candidates:
+        return ""
+        
+    manage_url = f"{base_url}/?token={token}"
+    unsubscribe_url = f"{base_url}/?token={token}&unsubscribe=true"
+    
+    top_3 = candidates[:3]
+    top_tickers_str = ", ".join(c.get("ticker", "") for c in top_3)
+    
+    cards_html = ""
+    rank_labels = ["#1 TOP RANK", "#2 RANK", "#3 RANK"]
+    rank_colors = ["#166534", "#1e3a8a", "#475569"]
+    bg_colors = ["#f0fdf4", "#f8fafc", "#f8fafc"]
+    border_colors = ["#bbf7d0", "#e2e8f0", "#e2e8f0"]
+    badge_bgs = ["#dcfce7", "#e0e7ff", "#f1f5f9"]
+    badge_colors = ["#166534", "#3730a3", "#334155"]
+    
+    for idx, item in enumerate(top_3):
+        rank = rank_labels[idx] if idx < len(rank_labels) else f"#{idx+1} RANK"
+        r_color = rank_colors[idx] if idx < len(rank_colors) else "#475569"
+        bg_col = bg_colors[idx] if idx < len(bg_colors) else "#f8fafc"
+        border_col = border_colors[idx] if idx < len(border_colors) else "#e2e8f0"
+        badge_bg = badge_bgs[idx] if idx < len(badge_bgs) else "#f1f5f9"
+        badge_col = badge_colors[idx] if idx < len(badge_colors) else "#334155"
+        
+        ticker = html.escape(str(item.get("ticker", "TICKER")))
+        score = float(item.get("growth_score") or 8.0)
+        cat_type = html.escape(str(item.get("catalyst_type", "Growth Catalyst")))
+        summary = html.escape(str(item.get("headline_summary", "")))
+        takeaway = html.escape(str(item.get("plain_english_takeaway", "")))
+        vol_mult = float(item.get("vol_mult") or 1.0)
+        latest_price = item.get("latest_price")
+        price_str = f"${float(latest_price):.2f}" if (latest_price and latest_price != "N/A") else "N/A"
+        
+        key_cats = "".join(f"<li>{html.escape(str(k))}</li>" for k in (item.get("key_catalysts") or []))
+        risks = "".join(f"<li>{html.escape(str(r))}</li>" for r in (item.get("risks") or []))
+        
+        # Clickable news articles for this candidate
+        news_articles = item.get("news_articles") or item.get("news") or []
+        news_links_html = ""
+        if news_articles:
+            news_rows = ""
+            for article in news_articles[:3]:
+                title = html.escape(str(article.get("title", "News Article")))
+                link = str(article.get("link", "#"))
+                news_rows += f'<div style="margin-top: 4px;"><a href="{link}" style="color: #2563eb; font-size: 12px; font-weight: 600; text-decoration: underline;" target="_blank">{title} →</a></div>'
+            news_links_html = f'<div style="margin-top: 10px; padding-top: 8px; border-top: 1px dashed #cbd5e1;"><span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">📰 Catalyst Headlines:</span>{news_rows}</div>'
+
+        cards_html += f"""
+        <!-- Candidate Card #{idx+1} -->
+        <div style="background-color: {bg_col}; border: 1px solid {border_col}; border-radius: 10px; padding: 18px; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #cbd5e1; padding-bottom: 8px; margin-bottom: 12px;">
+                <div style="font-size: 17px; font-weight: 800; color: {r_color};">
+                    <span style="background-color: {r_color}; color: #ffffff; font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 4px; margin-right: 6px;">{rank}</span>
+                    {ticker} — {cat_type}
+                </div>
+                <span style="background-color: {badge_bg}; color: {badge_col}; font-size: 12px; font-weight: 800; padding: 3px 10px; border-radius: 9999px; border: 1px solid #cbd5e1;">
+                    Score: {score:.1f} / 10
+                </span>
+            </div>
+            <div style="font-size: 13px; color: #475569; margin-bottom: 10px;">
+                Stock Price: <strong style="color: #0f172a;">{price_str}</strong> | Volume Surge: <strong style="color: {r_color};">{vol_mult:.2f}x 20-Day MA</strong>
+            </div>
+            <p style="margin: 0 0 10px 0; font-size: 13px; line-height: 1.5; color: #1e293b; font-weight: 600;">
+                {summary}
+            </p>
+            <p style="margin: 0 0 4px 0; font-size: 12px; font-weight: 700; color: {r_color};">Key Growth Drivers:</p>
+            <ul style="margin: 0 0 10px 0; padding-left: 18px; font-size: 12px; color: #334155; line-height: 1.4;">{key_cats}</ul>
+            
+            <p style="margin: 0 0 4px 0; font-size: 12px; font-weight: 700; color: #991b1b;">Risks & Considerations:</p>
+            <ul style="margin: 0 0 10px 0; padding-left: 18px; font-size: 12px; color: #b91c1c; line-height: 1.4;">{risks}</ul>
+            
+            <p style="margin: 0; font-size: 12px; line-height: 1.4; color: #334155;"><strong>Plain-English Takeaway:</strong> {takeaway}</p>
+            {news_links_html}
+        </div>
+        """
+
+    return f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05); color: #1a202c;">
+    
+    <!-- Top Header & Banner -->
+    <div style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); padding: 24px; border-radius: 10px; text-align: center; margin-bottom: 24px; color: #ffffff;">
+        <span style="display: inline-block; background-color: #818cf8; color: #0f172a; font-size: 11px; font-weight: 800; text-transform: uppercase; padding: 4px 12px; border-radius: 9999px; letter-spacing: 0.05em; margin-bottom: 8px;">
+            🚀 TradeRadar AI Market Digest
+        </span>
+        <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #ffffff;">Top {len(top_3)} Market Growth Catalysts Today</h1>
+        <p style="margin: 6px 0 0 0; font-size: 13px; color: #c7d2fe;">Featured Breakouts: {top_tickers_str} • Evaluated by Groq AI Llama 3.3-70B</p>
+    </div>
+
+    {cards_html}
+    
+    <!-- Footer -->
+    <div style="border-top: 1px solid #edf2f7; padding-top: 16px; text-align: center; font-size: 12px; color: #94a3b8;">
+        <p style="margin-bottom: 8px;">You are receiving this automated TradeRadar Market Growth Digest because you subscribed to AI Growth Catalysts.</p>
+        <p style="margin: 0;">
+            <a href="{manage_url}" style="color: #2563eb; text-decoration: underline; font-weight: 600;">Manage Preferences</a> 
+            &nbsp;|&nbsp; 
+            <a href="{unsubscribe_url}" style="color: #dc2626; text-decoration: underline; font-weight: 600;">Unsubscribe Completely</a>
+        </p>
+    </div>
+</div>
+"""
+
 def format_growth_catalyst_email(growth_res, token, base_url="http://localhost:8501"):
     """
     Formats a responsive HTML email alert for high-growth news & volume catalyst setups.

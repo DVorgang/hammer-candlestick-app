@@ -82,6 +82,8 @@ def run_growth_scan(trigger_type="manual"):
     logging.info(f"Pre-filter complete: {len(candidates)} candidates have BOTH volume surge + catalyst news (skipped {skipped} tickers). Evaluating with Groq AI...")
     
     # ─── PASS 2: AI evaluation (rate-limit aware) ───
+    high_growth_setups = []
+    
     for idx, g_payload in enumerate(candidates):
         ticker = g_payload["ticker"]
         
@@ -105,38 +107,48 @@ def run_growth_scan(trigger_type="manual"):
             score = float(g_res.get("growth_score"))
             cat_type = g_res.get("catalyst_type", "Growth Catalyst")
             logging.info(f"🚀 Whole-Market Growth Catalyst DISCOVERED: {ticker} ({cat_type}) - Score: {score:.1f}/10")
-            
-            latest_price = g_res.get("latest_price") or g_payload.get("latest_price")
-            g_signal = {
-                "ticker": ticker,
-                "pattern_type": f"Growth_{cat_type}",
-                "day1_date": str(datetime.now())[:10],
-                "day2_date": str(datetime.now())[:10],
-                "day3_open": latest_price,
-                "entry_price": latest_price,
-                "vol_mult": g_res.get("vol_mult")
-            }
-
-            
-            # Dispatch email to all subscribers with wants_growth=True
-            for sub in growth_subscribers:
-                email = sub["email"]
-                token = sub["management_token"]
-                sub_id = sub["id"]
-                
-                if not database.has_alert_been_sent(sub_id, g_signal):
-                    g_html = notifier.format_growth_catalyst_email(g_res, token)
-                    sent_real_email, status_msg = notifier.simulate_send_alert(email, g_html, f"Market Gem: {ticker} Growth Catalyst")
-                    logging.info(f"Market Growth email status for {email} / {ticker}: {status_msg}")
-                    if sent_real_email:
-                        database.record_sent_alert(sub_id, g_signal)
-                        total_alerts_sent += 1
-                else:
-                    logging.info(f"Skipping duplicate market growth alert for {email}: {ticker}.")
+            high_growth_setups.append(g_res)
         
         # Inter-request delay to avoid per-minute rate limits (12K TPM on free tier)
         if idx < len(candidates) - 1 and not daily_rate_limited:
             time.sleep(3)
+
+    # ─── PASS 3: Single Digest Email Dispatch (Top 3 Candidates) ───
+    if high_growth_setups:
+        # Sort candidates by AI growth score descending — highest score rank first
+        high_growth_setups.sort(key=lambda x: float(x.get("growth_score") or 0.0), reverse=True)
+        top_3_setups = high_growth_setups[:3]
+        top_tickers_label = ", ".join(x.get("ticker", "") for x in top_3_setups)
+        
+        logging.info(f"📦 Bundling Top {len(top_3_setups)} Growth Catalysts ({top_tickers_label}) into single email digest...")
+        
+        for sub in growth_subscribers:
+            email = sub["email"]
+            token = sub["management_token"]
+            sub_id = sub["id"]
+            
+            digest_html = notifier.format_growth_digest_email(top_3_setups, token)
+            subject_label = f"Market Growth Digest: Top {len(top_3_setups)} Breakouts ({top_tickers_label})"
+            sent_real_email, status_msg = notifier.simulate_send_alert(email, digest_html, subject_label)
+            
+            logging.info(f"Market Growth Digest delivery status for {email}: {status_msg}")
+            
+            if sent_real_email:
+                for item in top_3_setups:
+                    t_sym = item.get("ticker")
+                    c_type = item.get("catalyst_type", "Growth")
+                    l_price = item.get("latest_price")
+                    g_signal = {
+                        "ticker": t_sym,
+                        "pattern_type": f"Growth_{c_type}",
+                        "day1_date": str(datetime.now())[:10],
+                        "day2_date": str(datetime.now())[:10],
+                        "day3_open": l_price,
+                        "entry_price": l_price,
+                        "vol_mult": item.get("vol_mult")
+                    }
+                    database.record_sent_alert(sub_id, g_signal)
+                    total_alerts_sent += 1
 
     duration = time.time() - start_time
     tickers_count = len(market_tickers)

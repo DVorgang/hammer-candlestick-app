@@ -14,10 +14,12 @@ import time
 from core.local_env import load_env_file
 load_env_file()
 
+import importlib
 from core import database
 from engines import pattern_engine, growth_engine, backtest
 from ai import analyst_engine
 from notifications import notifier
+importlib.reload(notifier)
 from scanners import daily_scanner, growth_scanner
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -29,6 +31,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+TR_SPINNER_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle; flex-shrink: 0; margin-right: 4px;"><circle cx="12" cy="12" r="9" fill="none" stroke="#1e293b" stroke-width="3"/><circle cx="12" cy="12" r="9" fill="none" stroke="#38df88" stroke-width="3" stroke-dasharray="14 42" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.75s" repeatCount="indefinite"/></circle></svg>'
 
 
 # Background Auto-Scheduler Daemon Thread Setup
@@ -191,6 +195,39 @@ st.markdown("""
     button[kind="secondary"]:hover {
         border-color: #3b82f6 !important;
         color: #60a5fa !important;
+    }
+
+    @keyframes tr-spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    .tr-spinner-badge {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        color: #38df88;
+        font-size: 0.88rem;
+        font-weight: 700;
+        padding: 8px 16px;
+        border-radius: 8px;
+        border: 1px solid #38df88;
+        box-shadow: 0 0 12px rgba(56, 223, 136, 0.25);
+        width: 100%;
+        min-height: 42px;
+        box-sizing: border-box;
+    }
+    .tr-spinner-icon {
+        width: 16px;
+        height: 16px;
+        border: 2.5px solid rgba(56, 223, 136, 0.25);
+        border-top-color: #38df88;
+        border-radius: 50%;
+        animation: tr-spin 0.6s linear infinite;
+    }
+
+    button[kind="secondary"]:hover {
         background: #334155 !important;
     }
 
@@ -1632,12 +1669,17 @@ def render_management_dashboard(subscriber, token):
             """, unsafe_allow_html=True)
             
             st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-bottom: 6px;'>1. Run On-Demand:</p>", unsafe_allow_html=True)
-            if st.button("▶️ Run Instant Technical Scan", type="primary", use_container_width=True, key="btn_tech_manual"):
-                with st.spinner("Scanning watchlist for Hammer & Hanging Man pattern setups..."):
-                    start_t = time.time()
-                    daily_scanner.run_daily_scan(days_to_scan=3, trigger_type="manual")
-                    dur = time.time() - start_t
-                    st.session_state.pending_toast = f"Technical scan complete! Took {dur:.2f}s."
+            if st.session_state.get("is_running_manual_tech"):
+                st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 📊 Scanning Watchlist Reversals...</div>', unsafe_allow_html=True)
+                start_t = time.time()
+                daily_scanner.run_daily_scan(days_to_scan=3, trigger_type="manual")
+                dur = time.time() - start_t
+                st.session_state.is_running_manual_tech = False
+                st.session_state.pending_toast = f"Technical scan complete! Took {dur:.2f}s."
+                st.rerun()
+            else:
+                if st.button("▶️ Run Instant Technical Scan", type="primary", use_container_width=True, key="btn_tech_manual"):
+                    st.session_state.is_running_manual_tech = True
                     st.rerun()
 
             st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Market-Aligned Auto-Scheduler (9:00 AM & 4:30 PM EST):</p>", unsafe_allow_html=True)
@@ -1673,12 +1715,17 @@ def render_management_dashboard(subscriber, token):
             """, unsafe_allow_html=True)
 
             st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-bottom: 6px;'>1. Run On-Demand:</p>", unsafe_allow_html=True)
-            if st.button("🚀 Run Instant Market Growth Scan", type="primary", use_container_width=True, key="btn_growth_manual"):
-                with st.spinner("Scanning whole-market volume surges & news catalysts with Groq Llama 3.3-70B..."):
-                    start_t = time.time()
-                    growth_scanner.run_growth_scan(trigger_type="manual_ui")
-                    dur = time.time() - start_t
-                    st.session_state.pending_toast = f"Growth catalyst scan complete! Took {dur:.2f}s."
+            if st.session_state.get("is_running_manual_growth"):
+                st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 🚀 Scanning Whole-Market Catalysts...</div>', unsafe_allow_html=True)
+                start_t = time.time()
+                growth_scanner.run_growth_scan(trigger_type="manual_ui")
+                dur = time.time() - start_t
+                st.session_state.is_running_manual_growth = False
+                st.session_state.pending_toast = f"Growth catalyst scan complete! Took {dur:.2f}s."
+                st.rerun()
+            else:
+                if st.button("🚀 Run Instant Market Growth Scan", type="primary", use_container_width=True, key="btn_growth_manual"):
+                    st.session_state.is_running_manual_growth = True
                     st.rerun()
 
             st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Market-Aligned Auto-Scheduler (9:00 AM & 4:30 PM EST):</p>", unsafe_allow_html=True)
@@ -1897,87 +1944,212 @@ def render_management_dashboard(subscriber, token):
             }
             forced_model_arg = forced_model_map.get(selected_model_label)
 
-            c_test1, c_test2 = st.columns(2)
+            c_test1, c_test2, c_test3 = st.columns(3)
             
+            # --- Column 1: Single Technical Alert Test ---
             with c_test1:
-                if st.button("📧 Test Technical Reversal Email", use_container_width=True, key="btn_test_tech_email"):
+                if st.session_state.get("is_testing_tech"):
+                    st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} ⚡ Generating Single Alert...</div>', unsafe_allow_html=True)
                     mock_ticker = watchlist[0] if watchlist else "NVDA"
-                    with st.spinner(f"Fetching real market quote for {mock_ticker} & running AI check via {selected_model_label}..."):
-                        try:
-                            hist = yf.Ticker(mock_ticker).history(period="1mo")
-                            if not hist.empty:
-                                cur_price = float(hist['Close'].iloc[-1])
-                                day1_l = round(cur_price * 0.96, 2)
-                                day1_h = round(cur_price * 1.01, 2)
-                                day1_c = round(cur_price * 0.97, 2)
-                                day2_c = round(cur_price, 2)
-                            else:
-                                cur_price, day1_l, day1_h, day1_c, day2_c = 125.0, 115.0, 126.0, 120.0, 125.0
-                        except Exception:
+                    try:
+                        hist = yf.Ticker(mock_ticker).history(period="1mo")
+                        if not hist.empty:
+                            cur_price = float(hist['Close'].iloc[-1])
+                            day1_l = round(cur_price * 0.96, 2)
+                            day1_h = round(cur_price * 1.01, 2)
+                            day1_c = round(cur_price * 0.97, 2)
+                            day2_c = round(cur_price, 2)
+                        else:
                             cur_price, day1_l, day1_h, day1_c, day2_c = 125.0, 115.0, 126.0, 120.0, 125.0
+                    except Exception:
+                        cur_price, day1_l, day1_h, day1_c, day2_c = 125.0, 115.0, 126.0, 120.0, 125.0
 
-                        mock_signal = {
-                            "ticker": mock_ticker,
+                    mock_signal = {
+                        "ticker": mock_ticker,
+                        "pattern_type": "Hammer",
+                        "confidence_score": 88.5,
+                        "rsi_14": 28.2,
+                        "vol_mult": 1.95,
+                        "day1_date": (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d"),
+                        "day1_close": day1_c,
+                        "day1_low": day1_l,
+                        "day1_high": day1_h,
+                        "day2_date": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"),
+                        "day2_close": day2_c
+                    }
+                    ai_analysis = analyst_engine.analyze_signal(mock_signal, forced_model=forced_model_arg)
+                    if ai_analysis:
+                        mock_signal["ai_analysis"] = ai_analysis
+                    
+                    email_html = notifier.format_alert_email(mock_signal, token)
+                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], email_html, mock_ticker)
+                    model_tag = (ai_analysis.get("ai_model_used") if ai_analysis else None) or "AI"
+
+                    st.session_state.is_testing_tech = False
+                    st.session_state.test_tech_result = (real_sent, mock_ticker, day2_c, model_tag, status_msg, email_html)
+                    st.rerun()
+
+                else:
+                    if st.button("📧 Test Single Technical Alert", use_container_width=True, key="btn_test_tech_email"):
+                        st.session_state.is_testing_tech = True
+                        st.rerun()
+
+                    if "test_tech_result" in st.session_state:
+                        real_sent, mock_ticker, day2_c, model_tag, status_msg, email_html = st.session_state.pop("test_tech_result")
+                        if real_sent:
+                            st.success(f"✅ Technical Alert Sent for {mock_ticker} (${day2_c}) via {model_tag}: {status_msg}")
+                        else:
+                            st.info(f"ℹ️ [{model_tag}] {status_msg}")
+                        st.session_state.inspect_html = (f"Single Technical Reversal Alert ({model_tag})", email_html)
+
+            # --- Column 2: Multi-Stock Watchlist Technical Digest Test ---
+            with c_test2:
+                if st.session_state.get("is_testing_tech_digest"):
+                    st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 🔨 Assembling Technical Digest...</div>', unsafe_allow_html=True)
+                    mock_tech_signals = [
+                        {
+                            "ticker": "NVDA",
                             "pattern_type": "Hammer",
                             "confidence_score": 88.5,
                             "rsi_14": 28.2,
                             "vol_mult": 1.95,
-                            "day1_date": (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d"),
-                            "day1_close": day1_c,
-                            "day1_low": day1_l,
-                            "day1_high": day1_h,
-                            "day2_date": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"),
-                            "day2_close": day2_c
-                        }
-                        ai_analysis = analyst_engine.analyze_signal(mock_signal, forced_model=forced_model_arg)
-                    if ai_analysis:
-                        mock_signal["ai_analysis"] = ai_analysis
-                    email_html = notifier.format_alert_email(mock_signal, token)
-                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], email_html, mock_ticker)
-                    
-                    model_tag = (ai_analysis.get("ai_model_used") if ai_analysis else None) or "AI"
-                    if real_sent:
-                        st.success(f"✅ Technical Alert Sent for {mock_ticker} (${day2_c}) via {model_tag}: {status_msg}")
-                    else:
-                        st.info(f"ℹ️ [{model_tag}] {status_msg}")
-                    st.session_state.inspect_html = (f"Technical Reversal Alert ({model_tag})", email_html)
-                    st.rerun()
-
-
-            with c_test2:
-                if st.button("🚀 Test Growth Catalyst Email", use_container_width=True, key="btn_test_growth_email"):
-                    mock_ticker = watchlist[0] if watchlist else "AMD"
-                    with st.spinner(f"Evaluating real-time growth catalysts for {mock_ticker} via {selected_model_label}..."):
-                        g_payload = growth_engine.scan_ticker_for_growth_catalyst(mock_ticker)
-                        g_res = analyst_engine.evaluate_growth_catalyst(g_payload, forced_model=forced_model_arg)
-                        if not g_res:
-                            # Mock sample if news fetch is empty
-                            g_res = {
-                                "ticker": mock_ticker,
-                                "growth_score": 8.5,
-                                "catalyst_type": "Partnership & Computing Power Deal",
-                                "headline_summary": f"{mock_ticker} announces strategic $5 Billion AI partnership & multi-year agreement.",
-                                "key_catalysts": ["$5B strategic investment", "Next-gen AI computing power agreement", "Expanded market share"],
-                                "risks": ["High initial capex requirements", "Market competition"],
-                                "plain_english_takeaway": f"Major growth driver for {mock_ticker} over the next 12-24 months.",
-                                "ai_model_used": forced_model_arg or "Gemini-Flash (gemma-4-26b-a4b-it)",
-                                "news_articles": [
-
-                                    {"title": f"{mock_ticker} Lands Massive $5B AI Computing Partnership", "link": "https://news.google.com", "pubDate": "Tue, 22 Jul 2026 14:00:00 GMT"},
-                                    {"title": f"{mock_ticker} Stock Surges on New Multi-Year Revenue Agreement", "link": "https://news.google.com", "pubDate": "Mon, 21 Jul 2026 09:30:00 GMT"},
-                                    {"title": f"Why Analysts Are Upgrading {mock_ticker} After Strategic Deal", "link": "https://news.google.com", "pubDate": "Mon, 21 Jul 2026 08:15:00 GMT"},
-                                ]
+                            "day2_close": 125.40,
+                            "ai_analysis": {
+                                "headline_summary": "NVIDIA forms classic oversold Hammer buy reversal at $125.40 support level with high institutional buying volume.",
+                                "key_catalysts": ["Confirmed Hammer candlestick on 1.95x avg volume", "RSI deeply oversold at 28.2", "Bounced off 50-day moving average"],
+                                "risks": ["Broader semiconductor sector volatility", "Upcoming CPI inflation print"],
+                                "plain_english_takeaway": "High-probability bullish reversal setup for NVDA entering near key technical support."
                             }
-                    growth_html = notifier.format_growth_catalyst_email(g_res, token)
-                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], growth_html, f"{mock_ticker} Growth Catalyst")
+                        },
+                        {
+                            "ticker": "AMD",
+                            "pattern_type": "Hammer",
+                            "confidence_score": 82.0,
+                            "rsi_14": 33.5,
+                            "vol_mult": 1.70,
+                            "day2_close": 145.20,
+                            "ai_analysis": {
+                                "headline_summary": "AMD completes Hammer reversal following 4-day tech pullback.",
+                                "key_catalysts": ["Hammer candlestick pattern", "RSI oversold rebound", "Strong closing candle wick"],
+                                "risks": ["Overall market sentiment"],
+                                "plain_english_takeaway": "Solid technical recovery sign for AMD at major trendline support."
+                            }
+                        },
+                        {
+                            "ticker": "TSLA",
+                            "pattern_type": "Hanging Man",
+                            "confidence_score": 76.5,
+                            "rsi_14": 68.9,
+                            "vol_mult": 2.10,
+                            "day2_close": 248.50,
+                            "ai_analysis": {
+                                "headline_summary": "Tesla exhibits Hanging Man risk warning near multi-week resistance.",
+                                "key_catalysts": ["Hanging Man candle near overhead resistance", "RSI elevated at 68.9", "Heavy profit-taking tail"],
+                                "risks": ["Potential pullback to $235 support zone"],
+                                "plain_english_takeaway": "Exercise caution or tighten stop-losses on TSLA short-term long positions."
+                            }
+                        }
+                    ]
                     
-                    g_model_tag = g_res.get("ai_model_used", "Groq AI")
-                    if real_sent:
-                        st.success(f"✅ Growth Catalyst Alert Sent via {g_model_tag}: {status_msg}")
-                    else:
-                        st.info(f"ℹ️ [{g_model_tag}] {status_msg}")
-                    st.session_state.inspect_html = (f"Growth Catalyst Alert ({g_model_tag})", growth_html)
+                    tech_digest_html = notifier.format_technical_digest_email(mock_tech_signals, token)
+                    top_tickers_label = ", ".join(s["ticker"] for s in mock_tech_signals)
+                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], tech_digest_html, f"Watchlist Technical Digest ({top_tickers_label})")
+                    
+                    st.session_state.is_testing_tech_digest = False
+                    st.session_state.test_tech_digest_result = (real_sent, top_tickers_label, status_msg, tech_digest_html)
                     st.rerun()
+
+                else:
+                    if st.button("🔨 Test Watchlist Technical Digest", use_container_width=True, key="btn_test_tech_digest"):
+                        st.session_state.is_testing_tech_digest = True
+                        st.rerun()
+
+                    if "test_tech_digest_result" in st.session_state:
+                        real_sent, top_tickers_label, status_msg, tech_digest_html = st.session_state.pop("test_tech_digest_result")
+                        if real_sent:
+                            st.success(f"✅ Watchlist Technical Digest Sent ({top_tickers_label}): {status_msg}")
+                        else:
+                            st.info(f"ℹ️ {status_msg}")
+                        st.session_state.inspect_html = (f"Watchlist Technical Digest ({top_tickers_label})", tech_digest_html)
+
+            # --- Column 3: Growth Catalyst Digest Test ---
+            with c_test3:
+                if st.session_state.get("is_testing_growth"):
+                    st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 🚀 Assembling Growth Digest...</div>', unsafe_allow_html=True)
+                    mock_ticker = watchlist[0] if watchlist else "AMD"
+                    g_payload = growth_engine.scan_ticker_for_growth_catalyst(mock_ticker)
+                    g_res = analyst_engine.evaluate_growth_catalyst(g_payload, forced_model=forced_model_arg)
+                    if not g_res:
+                        g_res = {
+                            "ticker": mock_ticker,
+                            "growth_score": 8.5,
+                            "catalyst_type": "Earnings Beat & Revenue Surge",
+                            "headline_summary": f"{mock_ticker} announces strategic revenue beat and expanded AI computing partnerships.",
+                            "key_catalysts": ["+15% revenue beat vs estimates", "Next-gen enterprise computing deal", "Revised FY2026 guidance upward"],
+                            "risks": ["Capex acceleration", "High market competition"],
+                            "plain_english_takeaway": f"Strong growth catalyst for {mock_ticker} driving near-term momentum.",
+                            "vol_mult": 3.42,
+                            "latest_price": 145.20,
+                            "ai_model_used": forced_model_arg or "Groq-70B",
+                            "news_articles": [
+                                {"title": f"{mock_ticker} Surges on Q2 Revenue Beat & Upgraded Guidance", "link": "https://news.google.com", "pubDate": "Tue, 22 Jul 2026 14:00:00 GMT"},
+                                {"title": f"{mock_ticker} Expands Enterprise AI Partnership Footprint", "link": "https://news.google.com", "pubDate": "Mon, 21 Jul 2026 09:30:00 GMT"}
+                            ]
+                        }
+                    
+                    mock_top_3 = [
+                        g_res,
+                        {
+                            "ticker": "RKLB",
+                            "growth_score": 8.2,
+                            "catalyst_type": "Contract Win",
+                            "headline_summary": "Rocket Lab awarded $515M Prime Defense Satellite constellation contract.",
+                            "key_catalysts": ["$515M defense satellite award", "Backlog expansion"],
+                            "risks": ["Government funding timing"],
+                            "plain_english_takeaway": "Major defense contract win expanding high-margin space systems.",
+                            "vol_mult": 2.85,
+                            "latest_price": 5.40,
+                            "news_articles": [
+                                {"title": "Rocket Lab Secures $515M SDA Defense Satellite Award", "link": "https://news.google.com", "pubDate": "Tue, 22 Jul 2026 10:00:00 GMT"}
+                            ]
+                        },
+                        {
+                            "ticker": "SOFI",
+                            "growth_score": 7.8,
+                            "catalyst_type": "Strategic Agreement",
+                            "headline_summary": "SoFi inks $2B loan platform agreement with Fortress Investment Group.",
+                            "key_catalysts": ["$2B institutional capital commitment", "Fee revenue growth"],
+                            "risks": ["Interest rate fluctuations"],
+                            "plain_english_takeaway": "Expands high-margin loan origination fee revenue.",
+                            "vol_mult": 2.10,
+                            "latest_price": 7.10,
+                            "news_articles": [
+                                {"title": "SoFi Inks $2B Loan Platform Deal With Fortress", "link": "https://news.google.com", "pubDate": "Mon, 21 Jul 2026 08:30:00 GMT"}
+                            ]
+                        }
+                    ]
+
+                    growth_html = notifier.format_growth_digest_email(mock_top_3, token)
+                    top_tickers_label = ", ".join(x["ticker"] for x in mock_top_3)
+                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], growth_html, f"Market Growth Digest ({top_tickers_label})")
+                    g_model_tag = g_res.get("ai_model_used", "Groq AI")
+
+                    st.session_state.is_testing_growth = False
+                    st.session_state.test_growth_result = (real_sent, top_tickers_label, g_model_tag, status_msg, growth_html)
+                    st.rerun()
+
+                else:
+                    if st.button("🚀 Test Growth Catalyst Digest", use_container_width=True, key="btn_test_growth_email"):
+                        st.session_state.is_testing_growth = True
+                        st.rerun()
+
+                    if "test_growth_result" in st.session_state:
+                        real_sent, top_tickers_label, g_model_tag, status_msg, growth_html = st.session_state.pop("test_growth_result")
+                        if real_sent:
+                            st.success(f"✅ Growth Catalyst Digest Email Sent ({top_tickers_label}) via {g_model_tag}: {status_msg}")
+                        else:
+                            st.info(f"ℹ️ [{g_model_tag}] {status_msg}")
+                        st.session_state.inspect_html = (f"Growth Catalyst Digest ({top_tickers_label})", growth_html)
 
             if "inspect_html" in st.session_state:
                 label, h_content = st.session_state.inspect_html

@@ -81,6 +81,7 @@ def run_daily_scan(days_to_scan=3, trigger_type="manual"):
             
         logging.info(f"Processing subscriber {email} (Watchlist: {watchlist})...")
         
+        subscriber_tech_signals = []
         for ticker in watchlist:
             # --- 1. Candlestick Pattern Scan ---
             if ticker not in ticker_cache:
@@ -150,17 +151,30 @@ def run_daily_scan(days_to_scan=3, trigger_type="manual"):
                         logging.warning(f"❌ Alert aborted: Ticker {ticker} opened past invalidation level.")
                         continue
 
-                        
                     ai_analysis = analyst_engine.analyze_signal(signal)
                     if ai_analysis:
                         signal["ai_analysis"] = ai_analysis
 
-                    html_body = notifier.format_alert_email(signal, token)
-                    sent_real_email, status_msg = notifier.simulate_send_alert(email, html_body, ticker)
-                    logging.info(f"Delivery status for {email} / {ticker}: {status_msg}")
-                    if sent_real_email:
-                        database.record_sent_alert(sub_id, signal)
-                        total_alerts_sent += 1
+                    subscriber_tech_signals.append(signal)
+
+        # Dispatch Technical Notifications (Option A Hybrid Consolidation)
+        if len(subscriber_tech_signals) == 1:
+            sig = subscriber_tech_signals[0]
+            html_body = notifier.format_alert_email(sig, token)
+            sent_real_email, status_msg = notifier.simulate_send_alert(email, html_body, sig["ticker"])
+            logging.info(f"Single Technical delivery status for {email} / {sig['ticker']}: {status_msg}")
+            if sent_real_email:
+                database.record_sent_alert(sub_id, sig)
+                total_alerts_sent += 1
+        elif len(subscriber_tech_signals) >= 2:
+            tech_html = notifier.format_technical_digest_email(subscriber_tech_signals, token)
+            top_tickers_label = ", ".join(s["ticker"] for s in subscriber_tech_signals)
+            sent_real_email, status_msg = notifier.simulate_send_alert(email, tech_html, f"Watchlist Technical Digest ({top_tickers_label})")
+            logging.info(f"Technical Digest delivery status for {email} / ({top_tickers_label}): {status_msg}")
+            if sent_real_email:
+                for sig in subscriber_tech_signals:
+                    database.record_sent_alert(sub_id, sig)
+                total_alerts_sent += 1
 
             # --- 2. Growth Catalyst Scan ---
             if wants_growth:
