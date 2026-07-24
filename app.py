@@ -227,7 +227,6 @@ st.markdown("""
         border-radius: 50%;
         animation: tr-spin 0.6s linear infinite;
     }
-
     button[kind="secondary"]:hover {
         background: #334155 !important;
     }
@@ -1672,6 +1671,7 @@ def render_management_dashboard(subscriber, token):
             st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-bottom: 6px;'>1. Run On-Demand:</p>", unsafe_allow_html=True)
             if st.session_state.get("is_running_manual_tech"):
                 st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 📊 Scanning Watchlist Reversals...</div>', unsafe_allow_html=True)
+                time.sleep(0.15)
                 start_t = time.time()
                 daily_scanner.run_daily_scan(days_to_scan=3, trigger_type="manual")
                 dur = time.time() - start_t
@@ -1718,6 +1718,7 @@ def render_management_dashboard(subscriber, token):
             st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-bottom: 6px;'>1. Run On-Demand:</p>", unsafe_allow_html=True)
             if st.session_state.get("is_running_manual_growth"):
                 st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 🚀 Scanning Whole-Market Catalysts...</div>', unsafe_allow_html=True)
+                time.sleep(0.15)
                 start_t = time.time()
                 growth_scanner.run_growth_scan(trigger_type="manual_ui")
                 dur = time.time() - start_t
