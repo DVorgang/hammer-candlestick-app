@@ -1795,7 +1795,7 @@ def render_management_dashboard(subscriber, token):
 
         # SECTION 3: SYSTEM LEARNING & OUTCOME PERFORMANCE MATRIX
         with st.expander("🧠 System Learning & Post-Trade Outcome Matrix", expanded=True):
-            st.write("TradeRadar AI continuously tracks post-alert price action to evaluate setup accuracy, feed outcomes back into AI analysis, and dynamically calibrate confidence scoring:")
+            st.write("TradeRadar AI continuously tracks post-alert price action for confirmed **Hammer & Hanging Man Candlestick Setups** to evaluate setup accuracy, feed outcomes back into AI analysis, and dynamically calibrate confidence scoring:")
             
             stats = database.get_historical_accuracy_stats()
             outcomes = database.get_all_alert_outcomes(limit=20)

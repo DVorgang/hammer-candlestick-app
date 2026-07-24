@@ -605,11 +605,11 @@ def resolve_pending_alert_outcomes():
 
 def get_historical_accuracy_stats(ticker=None, pattern_type=None):
     """
-    Calculates historical win rate and return percentage for resolved alerts.
+    Calculates historical win rate and return percentage for resolved technical candlestick alerts.
     """
     conn = get_db_connection()
     try:
-        query = "SELECT outcome_status, return_pct FROM sent_alerts WHERE outcome_status IN ('win', 'loss', 'timeout')"
+        query = "SELECT outcome_status, return_pct FROM sent_alerts WHERE outcome_status IN ('win', 'loss', 'timeout') AND pattern_type NOT LIKE 'Growth%'"
         params = []
         if ticker:
             query += " AND ticker = ?"
@@ -644,19 +644,25 @@ def get_historical_accuracy_stats(ticker=None, pattern_type=None):
         conn.close()
 
 
-def get_all_alert_outcomes(limit=50):
+def get_all_alert_outcomes(limit=50, filter_technical_only=True):
     """
     Fetches historical sent alerts with their resolved outcomes for UI reporting.
+    By default, restricts to Technical Candlestick Setups (Hammer / Hanging Man).
     """
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        rows = cursor.execute("""
+        query = """
             SELECT id, ticker, pattern_type, day1_date, day2_date, sent_at, entry_price, stop_loss, profit_target, outcome_status, exit_price, exit_date, return_pct
             FROM sent_alerts
-            ORDER BY id DESC
-            LIMIT ?
-        """, (limit,)).fetchall()
+        """
+        params = []
+        if filter_technical_only:
+            query += " WHERE pattern_type NOT LIKE 'Growth%'"
+        query += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        
+        rows = cursor.execute(query, params).fetchall()
         return [dict(r) for r in rows]
     except sqlite3.Error as e:
         logging.error(f"Database error fetching alert outcomes: {e}")
