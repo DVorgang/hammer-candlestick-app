@@ -1840,10 +1840,26 @@ def render_management_dashboard(subscriber, token):
 
         # SECTION 4: EXPANDABLE DROPDOWNS FOR LOGS & UTILITIES
         with st.expander("📄 View Recent Scanner Run Logs", expanded=False):
+            st.write("Inspect execution metrics, ticker counts, and alert output for recent automated or manual scan runs:")
+            
+            filter_map = {
+                "🌐 All Scanner Runs": None,
+                "📊 Technical Reversal Engine (daily_scanner.py)": "technical",
+                "🚀 AI Growth Catalyst Engine (growth_scanner.py)": "growth",
+                "⏰ Scheduled Background Runs Only": "scheduled",
+                "⚡ Manual On-Demand Runs Only": "manual"
+            }
+            
+            selected_filter_label = st.selectbox(
+                "🔍 Filter Logs by Scan Category:",
+                list(filter_map.keys()),
+                key="selectbox_scanner_log_filter"
+            )
+            filter_arg = filter_map[selected_filter_label]
 
-            logs = database.get_all_scan_logs(limit=10)
+            logs = database.get_all_scan_logs(limit=25, filter_type=filter_arg)
             if not logs:
-                st.info("No scanner execution logs recorded yet. Click 'Run Instant Daily Scan Now' above to perform your first scan!")
+                st.info(f"No execution logs found for category **{selected_filter_label}**.")
             else:
                 log_df = pd.DataFrame(logs)
                 log_df["duration_seconds"] = log_df["duration_seconds"].apply(lambda x: f"{x:.2f}s")
@@ -1855,7 +1871,7 @@ def render_management_dashboard(subscriber, token):
                     "alerts_sent": "Alerts Sent",
                     "trigger_type": "Trigger Type"
                 })
-                st.table(log_df[["Timestamp", "Trigger Type", "Duration", "Tickers", "Setups Found", "Alerts Sent"]])
+                st.dataframe(log_df[["Timestamp", "Trigger Type", "Duration", "Tickers", "Setups Found", "Alerts Sent"]], use_container_width=True)
 
         with st.expander("📧 Email Delivery Tester & Layout Inspector", expanded=False):
             st.write("Send a test alert email to your address or inspect how different AI models format email notifications:")

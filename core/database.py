@@ -710,13 +710,27 @@ def get_last_scan_log(trigger_prefix=None, exclude_prefix=None):
     finally:
         conn.close()
 
-def get_all_scan_logs(limit=10):
+def get_all_scan_logs(limit=25, filter_type=None):
     """
-    Returns recent scan logs.
+    Returns recent scan logs, with optional filtering by scanner type or trigger category.
     """
     conn = get_db_connection()
     try:
-        rows = conn.execute("SELECT * FROM scanner_logs ORDER BY id DESC LIMIT ?;", (limit,)).fetchall()
+        if filter_type == "technical":
+            query = "SELECT * FROM scanner_logs WHERE trigger_type NOT LIKE '%growth%' ORDER BY id DESC LIMIT ?;"
+            rows = conn.execute(query, (limit,)).fetchall()
+        elif filter_type == "growth":
+            query = "SELECT * FROM scanner_logs WHERE trigger_type LIKE '%growth%' ORDER BY id DESC LIMIT ?;"
+            rows = conn.execute(query, (limit,)).fetchall()
+        elif filter_type == "scheduled":
+            query = "SELECT * FROM scanner_logs WHERE trigger_type LIKE '%scheduled%' ORDER BY id DESC LIMIT ?;"
+            rows = conn.execute(query, (limit,)).fetchall()
+        elif filter_type == "manual":
+            query = "SELECT * FROM scanner_logs WHERE trigger_type LIKE '%manual%' ORDER BY id DESC LIMIT ?;"
+            rows = conn.execute(query, (limit,)).fetchall()
+        else:
+            query = "SELECT * FROM scanner_logs ORDER BY id DESC LIMIT ?;"
+            rows = conn.execute(query, (limit,)).fetchall()
         return [dict(r) for r in rows]
     except sqlite3.Error as e:
         logging.error(f"Database error getting scan logs: {e}")
