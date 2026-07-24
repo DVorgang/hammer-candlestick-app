@@ -691,7 +691,7 @@ def record_scan_log(duration_seconds, tickers_scanned, signals_found, alerts_sen
     finally:
         conn.close()
 
-def get_last_scan_log(trigger_prefix=None):
+def get_last_scan_log(trigger_prefix=None, exclude_prefix=None):
     """
     Returns the most recent scan log record (optionally filtered by trigger_type).
     """
@@ -699,6 +699,8 @@ def get_last_scan_log(trigger_prefix=None):
     try:
         if trigger_prefix:
             row = conn.execute("SELECT * FROM scanner_logs WHERE trigger_type LIKE ? ORDER BY id DESC LIMIT 1;", (f"%{trigger_prefix}%",)).fetchone()
+        elif exclude_prefix:
+            row = conn.execute("SELECT * FROM scanner_logs WHERE trigger_type NOT LIKE ? ORDER BY id DESC LIMIT 1;", (f"%{exclude_prefix}%",)).fetchone()
         else:
             row = conn.execute("SELECT * FROM scanner_logs ORDER BY id DESC LIMIT 1;").fetchone()
         return dict(row) if row else None

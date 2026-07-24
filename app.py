@@ -1604,7 +1604,7 @@ def render_management_dashboard(subscriber, token):
                 g_uptime_str = "Active"
 
         # Fetch latest logs for metrics display
-        tech_log = database.get_last_scan_log(trigger_prefix="manual") or database.get_last_scan_log(trigger_prefix="scheduled") or database.get_last_scan_log()
+        tech_log = database.get_last_scan_log(exclude_prefix="growth")
         t_last_time = tech_log["timestamp"] if tech_log else "Never"
         t_last_dur = f"{tech_log['duration_seconds']:.2f}s" if tech_log else "n/a"
 
