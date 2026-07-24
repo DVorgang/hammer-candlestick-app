@@ -3,6 +3,7 @@ import html
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import formataddr
 import os
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -664,6 +665,7 @@ def send_real_email(to_email, subject, html_content, secondary_email=None):
     smtp_port = int(os.environ.get("SMTP_PORT", 587))
     smtp_username = os.environ.get("SMTP_USERNAME")
     smtp_password = os.environ.get("SMTP_PASSWORD")
+    smtp_from_name = os.environ.get("SMTP_FROM_NAME", "TRadar App Alerts")
     
     # If credentials are not configured, skip real email sending
     if not smtp_username or not smtp_password:
@@ -679,7 +681,7 @@ def send_real_email(to_email, subject, html_content, secondary_email=None):
         logging.info(f"Attempting to send real SMTP email to {recipients} via {smtp_server}...")
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = smtp_username
+        msg["From"] = formataddr((smtp_from_name, smtp_username))
         msg["To"] = ", ".join(recipients)
         
         part = MIMEText(html_content, "html")
