@@ -34,6 +34,7 @@ def init_db():
     CREATE TABLE IF NOT EXISTS subscribers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         email TEXT UNIQUE NOT NULL,
+        secondary_email TEXT,
         management_token TEXT UNIQUE NOT NULL,
         wants_buys INTEGER DEFAULT 1,
         wants_risks INTEGER DEFAULT 1,
@@ -86,6 +87,22 @@ def init_db():
     );
     """
     
+    create_growth_discoveries_table = """
+    CREATE TABLE IF NOT EXISTS growth_discoveries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticker TEXT NOT NULL,
+        discovery_date TEXT NOT NULL,
+        initial_price REAL,
+        growth_score REAL NOT NULL,
+        catalyst_type TEXT,
+        headline_summary TEXT,
+        last_featured_date TEXT NOT NULL,
+        status TEXT DEFAULT 'active_monitoring',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(ticker, discovery_date)
+    );
+    """
+    
     conn = get_db_connection()
     try:
         with conn:
@@ -94,6 +111,7 @@ def init_db():
             conn.execute(create_sent_alerts_table)
             conn.execute(create_scanner_logs_table)
             conn.execute(create_scheduler_state_table)
+            conn.execute(create_growth_discoveries_table)
             
             # Ensure default row 1 exists in scheduler_state
             conn.execute("INSERT OR IGNORE INTO scheduler_state (id, is_active, start_timestamp) VALUES (1, 0, NULL);")
@@ -107,6 +125,8 @@ def init_db():
                 conn.execute("ALTER TABLE subscribers ADD COLUMN otp_expiry TEXT;")
             if "wants_growth" not in columns:
                 conn.execute("ALTER TABLE subscribers ADD COLUMN wants_growth INTEGER DEFAULT 1;")
+            if "secondary_email" not in columns:
+                conn.execute("ALTER TABLE subscribers ADD COLUMN secondary_email TEXT;")
                 
             cursor_s = conn.execute("PRAGMA table_info(scheduler_state);")
             s_columns = [row["name"] for row in cursor_s.fetchall()]
@@ -233,6 +253,27 @@ def update_subscriber_preferences(token, wants_buys, wants_risks, wants_sells, w
         return True
     except sqlite3.Error as e:
         logging.error(f"Database error updating preferences: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def update_subscriber_secondary_email(token, secondary_email):
+    """
+    Updates the secondary / CC email recipient for a subscriber by management token.
+    """
+    sec_email = secondary_email.strip().lower() if secondary_email and secondary_email.strip() else None
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute(
+                "UPDATE subscribers SET secondary_email = ? WHERE management_token = ?",
+                (sec_email, token)
+            )
+        logging.info(f"Updated secondary email for token {token[:6]}... to {sec_email}")
+        return True
+    except sqlite3.Error as e:
+        logging.error(f"Database error updating secondary email: {e}")
         return False
     finally:
         conn.close()
@@ -825,6 +866,105 @@ def get_system_health():
         return {"status": "error", "error": str(e)}
     finally:
         conn.close()
+
+
+def record_growth_discovery(ticker, growth_score, catalyst_type, headline_summary="", initial_price=None):
+    """
+    Records a new AI Growth Discovery in sentinel.db or updates last_featured_date if existing.
+    """
+    ticker = ticker.strip().upper()
+    now_str = datetime.now().strftime("%Y-%m-%d")
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute("""
+                INSERT INTO growth_discoveries 
+                (ticker, discovery_date, initial_price, growth_score, catalyst_type, headline_summary, last_featured_date, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'active_monitoring')
+                ON CONFLICT(ticker, discovery_date) DO UPDATE SET
+                    growth_score = excluded.growth_score,
+                    headline_summary = excluded.headline_summary,
+                    last_featured_date = excluded.last_featured_date;
+            """, (ticker, now_str, initial_price, float(growth_score), catalyst_type, headline_summary, now_str))
+        logging.info(f"Recorded Growth Discovery for {ticker} (Score: {growth_score:.1f}, Price: {initial_price})")
+        return True
+    except sqlite3.Error as e:
+        logging.error(f"Database error recording growth discovery for {ticker}: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def is_growth_in_cooldown(ticker, cooldown_days=5):
+    """
+    Checks if a ticker was featured in growth_discoveries within the last N days.
+    """
+    ticker = ticker.strip().upper()
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        row = cursor.execute("""
+            SELECT last_featured_date FROM growth_discoveries 
+            WHERE ticker = ? 
+            ORDER BY id DESC LIMIT 1;
+        """, (ticker,)).fetchone()
+        
+        if not row:
+            return False
+            
+        last_date_str = row["last_featured_date"]
+        try:
+            last_dt = datetime.strptime(last_date_str[:10], "%Y-%m-%d")
+            delta_days = (datetime.now() - last_dt).days
+            return delta_days < cooldown_days
+        except Exception:
+            return False
+    except sqlite3.Error as e:
+        logging.error(f"Database error checking growth cooldown for {ticker}: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def get_growth_discovery_by_ticker(ticker):
+    """
+    Fetches the latest growth discovery record for a specific ticker to populate the Synergy email context box.
+    """
+    ticker = ticker.strip().upper()
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        row = cursor.execute("""
+            SELECT * FROM growth_discoveries 
+            WHERE ticker = ? 
+            ORDER BY id DESC LIMIT 1;
+        """, (ticker,)).fetchone()
+        return dict(row) if row else None
+    except sqlite3.Error as e:
+        logging.error(f"Database error fetching growth discovery for {ticker}: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+def get_recent_growth_discoveries(limit=30):
+    """
+    Fetches all recent growth discoveries for UI reporting in Section 3 and outcome tracking.
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        rows = cursor.execute("""
+            SELECT * FROM growth_discoveries 
+            ORDER BY id DESC LIMIT ?;
+        """, (limit,)).fetchall()
+        return [dict(r) for r in rows]
+    except sqlite3.Error as e:
+        logging.error(f"Database error fetching recent growth discoveries: {e}")
+        return []
+    finally:
+        conn.close()
+
 
 # Automatically initialize database when database.py is imported or run directly
 init_db()

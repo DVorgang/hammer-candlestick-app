@@ -102,11 +102,15 @@ def run_growth_scan(trigger_type="manual"):
             logging.error(f"Error evaluating growth catalyst for {ticker}: {e}")
             g_res = None
         
-        if g_res and float(g_res.get("growth_score") or 0.0) >= 7.0:
+        if g_res and float(g_res.get("growth_score") or 0.0) >= 8.0:
+            if database.is_growth_in_cooldown(ticker, cooldown_days=5):
+                logging.info(f"⏸️ Ticker {ticker} is in 5-day growth cooldown. Skipping duplicate email dispatch.")
+                continue
+
             total_signals_found += 1
             score = float(g_res.get("growth_score"))
             cat_type = g_res.get("catalyst_type", "Growth Catalyst")
-            logging.info(f"🚀 Whole-Market Growth Catalyst DISCOVERED: {ticker} ({cat_type}) - Score: {score:.1f}/10")
+            logging.info(f"🚀 Elite Market Growth Catalyst DISCOVERED (>= 8.0/10): {ticker} ({cat_type}) - Score: {score:.1f}/10")
             high_growth_setups.append(g_res)
         
         # Inter-request delay to avoid per-minute rate limits (12K TPM on free tier)
@@ -126,10 +130,11 @@ def run_growth_scan(trigger_type="manual"):
             email = sub["email"]
             token = sub["management_token"]
             sub_id = sub["id"]
+            sec_email = sub.get("secondary_email")
             
             digest_html = notifier.format_growth_digest_email(top_3_setups, token)
             subject_label = f"Market Growth Digest: Top {len(top_3_setups)} Breakouts ({top_tickers_label})"
-            sent_real_email, status_msg = notifier.simulate_send_alert(email, digest_html, subject_label)
+            sent_real_email, status_msg = notifier.simulate_send_alert(email, digest_html, subject_label, secondary_email=sec_email)
             
             logging.info(f"Market Growth Digest delivery status for {email}: {status_msg}")
             
@@ -138,6 +143,12 @@ def run_growth_scan(trigger_type="manual"):
                     t_sym = item.get("ticker")
                     c_type = item.get("catalyst_type", "Growth")
                     l_price = item.get("latest_price")
+                    g_score = item.get("growth_score", 8.0)
+                    g_summary = item.get("headline_summary", "")
+                    
+                    # Record in sentinel.db growth_discoveries table
+                    database.record_growth_discovery(t_sym, g_score, c_type, g_summary, l_price)
+                    
                     g_signal = {
                         "ticker": t_sym,
                         "pattern_type": f"Growth_{c_type}",

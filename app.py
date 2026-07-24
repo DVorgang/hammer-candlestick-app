@@ -16,6 +16,7 @@ load_env_file()
 
 import importlib
 from core import database
+importlib.reload(database)
 from engines import pattern_engine, growth_engine, backtest
 from ai import analyst_engine
 from notifications import notifier
@@ -1793,6 +1794,39 @@ def render_management_dashboard(subscriber, token):
         st.markdown('<p style="font-size: 13px; color: #94a3b8; margin-top: 10px;">Preferences update automatically in real-time when toggled.</p>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
+        # SECTION 2B: SECONDARY / CC EMAIL RECIPIENT
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">📧 Secondary / CC Email Recipient</div>', unsafe_allow_html=True)
+        st.write("All technical reversal alerts, market growth digests, and synergy emails will automatically be delivered to both your primary email and secondary recipient:")
+        
+        cur_sec_email = subscriber.get("secondary_email") or ""
+        
+        sec_col1, sec_col2, sec_col3 = st.columns([3, 1, 1])
+        with sec_col1:
+            new_sec_email = st.text_input(
+                "Secondary CC Email",
+                value=cur_sec_email,
+                placeholder="Enter secondary email address (e.g. partner@example.com)...",
+                label_visibility="collapsed",
+                key="input_secondary_email"
+            ).strip()
+        with sec_col2:
+            if st.button("💾 Save CC Email", type="primary", use_container_width=True, key="btn_save_sec_email"):
+                database.update_subscriber_secondary_email(token, new_sec_email)
+                st.session_state.pending_toast = f"Secondary email recipient updated to: {new_sec_email or 'None'}"
+                st.rerun()
+        with sec_col3:
+            if st.button("🗑️ Remove CC Email", use_container_width=True, key="btn_remove_sec_email"):
+                database.update_subscriber_secondary_email(token, "")
+                st.session_state.pending_toast = "Secondary email recipient removed from database."
+                st.rerun()
+                
+        if cur_sec_email:
+            st.markdown(f'<div style="color: #38df88; font-size: 13px; font-weight: 700; margin-top: 8px;">✅ Active CC Recipient: {cur_sec_email}</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div style="color: #94a3b8; font-size: 13px; margin-top: 8px;">ℹ️ No secondary CC email configured. Alerts are sent to primary email only.</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
         # SECTION 3: EXPANDABLE DROPDOWNS FOR LOGS & UTILITIES
         with st.expander("🧪 2-Year Strategy Backtest Sandbox", expanded=False):
             st.write("Run historical simulations of the **3-day rigid trading strategy** to verify how a ticker performed over a 2-year window:")
@@ -1884,6 +1918,24 @@ def render_management_dashboard(subscriber, token):
                 })
                 st.dataframe(out_df[["Ticker", "Pattern", "Setup Date", "Entry", "Stop Loss", "Target", "Status", "Exit Price", "Return"]], use_container_width=True, hide_index=True)
 
+            st.write("---")
+            st.write("**🚀 AI Growth Discoveries & 5-Day Cooldown Audit Matrix:**")
+            recent_growths = database.get_recent_growth_discoveries(limit=15)
+            if not recent_growths:
+                st.info("No recorded market growth discoveries yet. Run a market growth scan above to populate initial AI discoveries!")
+            else:
+                g_df = pd.DataFrame(recent_growths)
+                g_df["Initial Price"] = g_df["initial_price"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
+                g_df["AI Score"] = g_df["growth_score"].map(lambda x: f"{x:.1f} / 10" if pd.notna(x) else "N/A")
+                g_df = g_df.rename(columns={
+                    "ticker": "Ticker",
+                    "catalyst_type": "Catalyst Category",
+                    "discovery_date": "Discovered Date",
+                    "last_featured_date": "Last Featured",
+                    "status": "Monitoring Status"
+                })
+                st.dataframe(g_df[["Ticker", "AI Score", "Catalyst Category", "Discovered Date", "Initial Price", "Last Featured", "Monitoring Status"]], use_container_width=True, hide_index=True)
+
 
         # SECTION 4: EXPANDABLE DROPDOWNS FOR LOGS & UTILITIES
         with st.expander("📄 View Recent Scanner Run Logs", expanded=False):
@@ -1944,7 +1996,7 @@ def render_management_dashboard(subscriber, token):
             }
             forced_model_arg = forced_model_map.get(selected_model_label)
 
-            c_test1, c_test2, c_test3 = st.columns(3)
+            c_test1, c_test2, c_test3, c_test4 = st.columns(4)
             
             # --- Column 1: Single Technical Alert Test ---
             with c_test1:
@@ -1982,7 +2034,7 @@ def render_management_dashboard(subscriber, token):
                         mock_signal["ai_analysis"] = ai_analysis
                     
                     email_html = notifier.format_alert_email(mock_signal, token)
-                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], email_html, mock_ticker)
+                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], email_html, mock_ticker, secondary_email=subscriber.get("secondary_email"))
                     model_tag = (ai_analysis.get("ai_model_used") if ai_analysis else None) or "AI"
 
                     st.session_state.is_testing_tech = False
@@ -1990,7 +2042,7 @@ def render_management_dashboard(subscriber, token):
                     st.rerun()
 
                 else:
-                    if st.button("📧 Test Single Technical Alert", use_container_width=True, key="btn_test_tech_email"):
+                    if st.button("📧 Test Single Alert", use_container_width=True, key="btn_test_tech_email"):
                         st.session_state.is_testing_tech = True
                         st.rerun()
 
@@ -2005,7 +2057,7 @@ def render_management_dashboard(subscriber, token):
             # --- Column 2: Multi-Stock Watchlist Technical Digest Test ---
             with c_test2:
                 if st.session_state.get("is_testing_tech_digest"):
-                    st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 🔨 Assembling Technical Digest...</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 🔨 Assembling Digest...</div>', unsafe_allow_html=True)
                     mock_tech_signals = [
                         {
                             "ticker": "NVDA",
@@ -2053,14 +2105,14 @@ def render_management_dashboard(subscriber, token):
                     
                     tech_digest_html = notifier.format_technical_digest_email(mock_tech_signals, token)
                     top_tickers_label = ", ".join(s["ticker"] for s in mock_tech_signals)
-                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], tech_digest_html, f"Watchlist Technical Digest ({top_tickers_label})")
+                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], tech_digest_html, f"Watchlist Technical Digest ({top_tickers_label})", secondary_email=subscriber.get("secondary_email"))
                     
                     st.session_state.is_testing_tech_digest = False
                     st.session_state.test_tech_digest_result = (real_sent, top_tickers_label, status_msg, tech_digest_html)
                     st.rerun()
 
                 else:
-                    if st.button("🔨 Test Watchlist Technical Digest", use_container_width=True, key="btn_test_tech_digest"):
+                    if st.button("🔨 Test Watchlist Digest", use_container_width=True, key="btn_test_tech_digest"):
                         st.session_state.is_testing_tech_digest = True
                         st.rerun()
 
@@ -2131,7 +2183,7 @@ def render_management_dashboard(subscriber, token):
 
                     growth_html = notifier.format_growth_digest_email(mock_top_3, token)
                     top_tickers_label = ", ".join(x["ticker"] for x in mock_top_3)
-                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], growth_html, f"Market Growth Digest ({top_tickers_label})")
+                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], growth_html, f"Market Growth Digest ({top_tickers_label})", secondary_email=subscriber.get("secondary_email"))
                     g_model_tag = g_res.get("ai_model_used", "Groq AI")
 
                     st.session_state.is_testing_growth = False
@@ -2139,7 +2191,7 @@ def render_management_dashboard(subscriber, token):
                     st.rerun()
 
                 else:
-                    if st.button("🚀 Test Growth Catalyst Digest", use_container_width=True, key="btn_test_growth_email"):
+                    if st.button("🚀 Test Growth Digest", use_container_width=True, key="btn_test_growth_email"):
                         st.session_state.is_testing_growth = True
                         st.rerun()
 
@@ -2150,6 +2202,56 @@ def render_management_dashboard(subscriber, token):
                         else:
                             st.info(f"ℹ️ [{g_model_tag}] {status_msg}")
                         st.session_state.inspect_html = (f"Growth Catalyst Digest ({top_tickers_label})", growth_html)
+
+            # --- Column 4: Cross-Engine Synergy Alert Test ---
+            with c_test4:
+                if st.session_state.get("is_testing_synergy"):
+                    st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} ⚡ Generating Synergy Alert...</div>', unsafe_allow_html=True)
+                    mock_sig = {
+                        "ticker": "RKLB",
+                        "pattern_type": "Hammer",
+                        "confidence_score": 91.5,
+                        "rsi_14": 31.8,
+                        "vol_mult": 2.15,
+                        "day2_close": 5.10,
+                        "entry_price": 5.10,
+                        "stop_loss": 4.85,
+                        "profit_target": 5.60,
+                        "ai_analysis": {
+                            "headline_summary": "Rocket Lab forms high-conviction Hammer buy reversal at $5.10 support following post-contract pullback.",
+                            "key_catalysts": ["Confirmed Hammer candlestick on 2.15x avg volume", "RSI oversold rebound at 31.8", "Support bounce at $5.10"],
+                            "risks": ["Broader defense sector volatility", "Space launch scheduling timing"],
+                            "plain_english_takeaway": "High-conviction cross-engine synergy setup for RKLB combining fundamental AI growth spark with technical Hammer entry."
+                        }
+                    }
+                    mock_disc = {
+                        "ticker": "RKLB",
+                        "discovery_date": (datetime.now() - timedelta(days=4)).strftime("%Y-%m-%d"),
+                        "initial_price": 5.40,
+                        "growth_score": 8.5,
+                        "catalyst_type": "Contract Win",
+                        "headline_summary": "Rocket Lab awarded $515M Prime Defense Satellite constellation contract."
+                    }
+                    
+                    synergy_html = notifier.format_synergy_alert_email(mock_sig, mock_disc, token)
+                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], synergy_html, "Synergy Alert: RKLB Hammer Reversal", secondary_email=subscriber.get("secondary_email"))
+                    
+                    st.session_state.is_testing_synergy = False
+                    st.session_state.test_synergy_result = (real_sent, "RKLB", status_msg, synergy_html)
+                    st.rerun()
+
+                else:
+                    if st.button("⚡ Test Synergy Alert", use_container_width=True, key="btn_test_synergy_email"):
+                        st.session_state.is_testing_synergy = True
+                        st.rerun()
+
+                    if "test_synergy_result" in st.session_state:
+                        real_sent, t_sym, status_msg, synergy_html = st.session_state.pop("test_synergy_result")
+                        if real_sent:
+                            st.success(f"✅ Cross-Engine Synergy Alert Sent for {t_sym}: {status_msg}")
+                        else:
+                            st.info(f"ℹ️ {status_msg}")
+                        st.session_state.inspect_html = (f"Cross-Engine Synergy Alert ({t_sym})", synergy_html)
 
             if "inspect_html" in st.session_state:
                 label, h_content = st.session_state.inspect_html

@@ -155,21 +155,35 @@ def run_daily_scan(days_to_scan=3, trigger_type="manual"):
                     if ai_analysis:
                         signal["ai_analysis"] = ai_analysis
 
+                    # Check if ticker is a Growth Discovery for Synergy formatting
+                    disc_info = database.get_growth_discovery_by_ticker(ticker)
+                    if disc_info:
+                        signal["is_synergy"] = True
+                        signal["discovery_info"] = disc_info
+
                     subscriber_tech_signals.append(signal)
 
-        # Dispatch Technical Notifications (Option A Hybrid Consolidation)
+        sec_email = sub.get("secondary_email")
+
+        # Dispatch Technical Notifications (Option A Hybrid Consolidation + Cross-Engine Synergy)
         if len(subscriber_tech_signals) == 1:
             sig = subscriber_tech_signals[0]
-            html_body = notifier.format_alert_email(sig, token)
-            sent_real_email, status_msg = notifier.simulate_send_alert(email, html_body, sig["ticker"])
-            logging.info(f"Single Technical delivery status for {email} / {sig['ticker']}: {status_msg}")
+            if sig.get("is_synergy") and sig.get("discovery_info"):
+                html_body = notifier.format_synergy_alert_email(sig, sig["discovery_info"], token)
+                subj_title = f"Synergy Alert: {sig['ticker']} {sig['pattern_type']} Reversal"
+            else:
+                html_body = notifier.format_alert_email(sig, token)
+                subj_title = sig["ticker"]
+                
+            sent_real_email, status_msg = notifier.simulate_send_alert(email, html_body, subj_title, secondary_email=sec_email)
+            logging.info(f"Single Technical/Synergy delivery status for {email} / {sig['ticker']}: {status_msg}")
             if sent_real_email:
                 database.record_sent_alert(sub_id, sig)
                 total_alerts_sent += 1
         elif len(subscriber_tech_signals) >= 2:
             tech_html = notifier.format_technical_digest_email(subscriber_tech_signals, token)
             top_tickers_label = ", ".join(s["ticker"] for s in subscriber_tech_signals)
-            sent_real_email, status_msg = notifier.simulate_send_alert(email, tech_html, f"Watchlist Technical Digest ({top_tickers_label})")
+            sent_real_email, status_msg = notifier.simulate_send_alert(email, tech_html, f"Watchlist Technical Digest ({top_tickers_label})", secondary_email=sec_email)
             logging.info(f"Technical Digest delivery status for {email} / ({top_tickers_label}): {status_msg}")
             if sent_real_email:
                 for sig in subscriber_tech_signals:
