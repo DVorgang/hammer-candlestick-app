@@ -26,7 +26,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 # Set Page Config
 st.set_page_config(
-    page_title="TradeRadar",
+    page_title="TRadar",
     page_icon="🛰️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -1384,7 +1384,7 @@ def render_management_dashboard(subscriber, token):
         <div style="margin-top: 5px; margin-bottom: 22px; display: flex; align-items: center; gap: 20px;">
             <img src="{logo_b64}" style="width: 140px; height: 140px; border-radius: 16px; object-fit: contain; background: #0f172a; padding: 6px; border: 1px solid #334155; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); flex-shrink: 0;">
             <div>
-                <h1 style="margin: 0; font-size: 2.6rem; font-weight: 800; background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1.1;">TradeRadar</h1>
+                <h1 style="margin: 0; font-size: 2.6rem; font-weight: 800; background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1.1;">TRadar</h1>
                 <span style="color: #94a3b8; font-size: 1.05rem; display: inline-block; margin-top: 8px;">Real-time market scanning & portfolio intelligence for <strong style="color: #60a5fa;">{subscriber["email"]}</strong></span>
             </div>
         </div>
@@ -1392,7 +1392,7 @@ def render_management_dashboard(subscriber, token):
     else:
         header_html = f"""
         <div style="margin-top: 5px; margin-bottom: 22px;">
-            <h1 style="margin: 0; font-size: 2.8rem; font-weight: 800; background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">TradeRadar</h1>
+            <h1 style="margin: 0; font-size: 2.8rem; font-weight: 800; background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">TRadar</h1>
             <span style="color: #94a3b8; font-size: 1.05rem; display: inline-block; margin-top: 6px;">Real-time market scanning & portfolio intelligence for <strong style="color: #60a5fa;">{subscriber["email"]}</strong></span>
         </div>
         """
@@ -1842,7 +1842,7 @@ def render_management_dashboard(subscriber, token):
 
         # SECTION 3: SYSTEM LEARNING & OUTCOME PERFORMANCE MATRIX
         with st.expander("🧠 System Learning & Post-Trade Outcome Matrix", expanded=True):
-            st.write("TradeRadar AI continuously tracks post-alert price action for confirmed **Hammer & Hanging Man Candlestick Setups** to evaluate setup accuracy, feed outcomes back into AI analysis, and dynamically calibrate confidence scoring:")
+            st.write("TRadar AI continuously tracks post-alert price action for confirmed **Hammer & Hanging Man Candlestick Setups** to evaluate setup accuracy, feed outcomes back into AI analysis, and dynamically calibrate confidence scoring:")
             
             stats = database.get_historical_accuracy_stats()
             outcomes = database.get_all_alert_outcomes(limit=20)

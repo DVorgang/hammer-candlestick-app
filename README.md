@@ -1,6 +1,6 @@
-# 📈 Candlestick Sentinel & AI Growth Catalyst Engine
+# 🛰️ TRadar — AI Market Intelligence & Growth Catalyst Engine
 
-**Candlestick Sentinel** is a full-stack algorithmic trading analysis system, real-time web dashboard, and automated email alert scanner built with Python, Streamlit, Plotly, and SQLite.
+**TRadar** is a full-stack algorithmic trading analysis system, real-time web dashboard, and automated email alert scanner built with Python, Streamlit, Plotly, and SQLite.
 
 The application combines **algorithmic technical pattern detection** with **whole-market fundamental AI news evaluation**. It monitors watchlists for high-probability candlestick pattern reversals (**Hammer** buy setups and **Hanging Man** risk warnings) using a strict **3-day confirmation lifecycle**, while simultaneously scanning the entire US stock market for **high-volume growth catalysts & unexpected contract wins** powered by an intelligent multi-model AI analyst fallback chain (Groq Llama 3.3-70B, Groq 8B, and Google Gemma 4).
 

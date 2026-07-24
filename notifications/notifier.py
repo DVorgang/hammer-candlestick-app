@@ -302,7 +302,7 @@ def format_technical_digest_email(signals, token, base_url="http://localhost:850
     <!-- Top Header & Banner -->
     <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 24px; border-radius: 10px; text-align: center; margin-bottom: 24px; color: #ffffff;">
         <span style="display: inline-block; background-color: #38df88; color: #0f172a; font-size: 11px; font-weight: 800; text-transform: uppercase; padding: 4px 12px; border-radius: 9999px; letter-spacing: 0.05em; margin-bottom: 8px;">
-            📊 TradeRadar Watchlist Digest
+            📊 TRadar Watchlist Digest
         </span>
         <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #ffffff;">{len(signals)} Watchlist Technical Reversals</h1>
         <p style="margin: 6px 0 0 0; font-size: 13px; color: #94a3b8;">Triggered Watchlist Stocks: {tickers_str}</p>
@@ -312,7 +312,7 @@ def format_technical_digest_email(signals, token, base_url="http://localhost:850
     
     <!-- Footer -->
     <div style="border-top: 1px solid #edf2f7; padding-top: 16px; text-align: center; font-size: 12px; color: #94a3b8;">
-        <p style="margin-bottom: 8px;">You are receiving this TradeRadar Technical Digest because {len(signals)} stocks on your watchlist triggered reversal patterns simultaneously.</p>
+        <p style="margin-bottom: 8px;">You are receiving this TRadar Technical Digest because {len(signals)} stocks on your watchlist triggered reversal patterns simultaneously.</p>
         <p style="margin: 0;">
             <a href="{manage_url}" style="color: #2563eb; text-decoration: underline; font-weight: 600;">Manage Preferences</a> 
             &nbsp;|&nbsp; 
@@ -411,7 +411,7 @@ def format_growth_digest_email(candidates, token, base_url="http://localhost:850
     <!-- Top Header & Banner -->
     <div style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); padding: 24px; border-radius: 10px; text-align: center; margin-bottom: 24px; color: #ffffff;">
         <span style="display: inline-block; background-color: #818cf8; color: #0f172a; font-size: 11px; font-weight: 800; text-transform: uppercase; padding: 4px 12px; border-radius: 9999px; letter-spacing: 0.05em; margin-bottom: 8px;">
-            🚀 TradeRadar AI Market Digest
+            🚀 TRadar AI Market Digest
         </span>
         <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #ffffff;">Top {len(top_3)} Market Growth Catalysts Today</h1>
         <p style="margin: 6px 0 0 0; font-size: 13px; color: #c7d2fe;">Featured Breakouts: {top_tickers_str} • Evaluated by Groq AI Llama 3.3-70B</p>
@@ -421,7 +421,7 @@ def format_growth_digest_email(candidates, token, base_url="http://localhost:850
     
     <!-- Footer -->
     <div style="border-top: 1px solid #edf2f7; padding-top: 16px; text-align: center; font-size: 12px; color: #94a3b8;">
-        <p style="margin-bottom: 8px;">You are receiving this automated TradeRadar Market Growth Digest because you subscribed to AI Growth Catalysts.</p>
+        <p style="margin-bottom: 8px;">You are receiving this automated TRadar Market Growth Digest because you subscribed to AI Growth Catalysts.</p>
         <p style="margin: 0;">
             <a href="{manage_url}" style="color: #2563eb; text-decoration: underline; font-weight: 600;">Manage Preferences</a> 
             &nbsp;|&nbsp; 
