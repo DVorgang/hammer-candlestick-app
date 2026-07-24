@@ -1654,7 +1654,7 @@ def render_management_dashboard(subscriber, token):
             t_status_label = f"🟢 Active ({uptime_str})" if is_sched_active else "🔴 Stopped"
             st.markdown(f"""
             <div style="background: #090d16; padding: 14px; border-radius: 8px; border: 1px solid #1e293b; margin-top: 14px;">
-                <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">AUTOMATED SCHEDULER STATUS</span>
+                <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">TECHNICAL REVERSAL SCHEDULER STATUS (scanners/daily_scanner.py)</span>
                 <div style="color: {t_status_color}; font-size: 1.1rem; font-weight: 800; margin-top: 4px;">{t_status_label}</div>
                 <div style="color: #cbd5e1; font-size: 0.85rem; margin-top: 6px;">Last Executed: <strong style="color: #f8fafc;">{t_last_time}</strong> ({t_last_dur})</div>
             </div>
@@ -1696,7 +1696,7 @@ def render_management_dashboard(subscriber, token):
             g_status_label = f"🟢 Active ({g_uptime_str})" if is_growth_active else "🔴 Stopped"
             st.markdown(f"""
             <div style="background: #090d16; padding: 14px; border-radius: 8px; border: 1px solid #1e293b; margin-top: 14px;">
-                <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">AUTOMATED SCHEDULER STATUS</span>
+                <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">AI GROWTH SCHEDULER STATUS (scanners/growth_scanner.py)</span>
                 <div style="color: {g_status_color}; font-size: 1.1rem; font-weight: 800; margin-top: 4px;">{g_status_label}</div>
                 <div style="color: #cbd5e1; font-size: 0.85rem; margin-top: 6px;">Last Executed: <strong style="color: #f8fafc;">{g_last_time}</strong> ({g_last_dur})</div>
             </div>
