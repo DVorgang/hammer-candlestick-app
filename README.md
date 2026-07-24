@@ -57,6 +57,62 @@ The application combines **algorithmic technical pattern detection** with **whol
 
 ---
 
+## 🔍 Detailed Scanner Criteria & Functional Specs
+
+The application features two specialized, complementary scanning engines. Below is the exact breakdown of how each scanner operates, what criteria it enforces, and how triggers are evaluated:
+
+| Feature | 📊 Candlestick Technical Reversal Engine | 🚀 Whole-Market AI Growth & Catalyst Engine |
+| :--- | :--- | :--- |
+| **Script Path** | `scanners/daily_scanner.py` | `scanners/growth_scanner.py` |
+| **Scan Universe** | User Watchlists (`AMD`, `NVDA`, `PLTR`, etc.) | Whole US Stock Market (~100–150 candidates screened) |
+| **Market Data** | Daily OHLCV Price Action + RSI(14) + 20-Day SMA/EMA | Real-time Volume Surge + Yahoo Market Screeners + News RSS |
+| **Core Criteria** | 3-Day Geometric Pattern Rules (Hammer & Hanging Man) | Volume Multiplier $\ge 2.0\text{x}$ + Fresh News Catalysts |
+| **AI Integration** | Technical Summary & Track Record Win-Rate Context | Groq Llama 3.3-70B Fundamental Growth Scoring ($\ge 7.0/10$) |
+| **Output / Alerts** | Trade Blueprint Cards (Entry, Stop Loss, 2:1 Target) | Growth Catalyst Breakout Blueprint & Catalyst Summary |
+
+---
+
+### Engine 1: 📊 Candlestick Technical Reversal Scanner (`scanners/daily_scanner.py`)
+
+Scans user watchlists for high-probability 3-day candlestick reversals.
+
+#### 1. Geometric Candle Rules (Day 1)
+* **Hammer (Bullish Reversal):**
+  - **Lower Shadow:** $\ge 2.0\times$ Real Body height (strong intraday rejection of lower prices).
+  - **Upper Shadow:** $\le 10\%$ total candle range or $\le 20\%$ body height.
+  - **RSI Threshold:** RSI(14) $< 50$ (confirms setup is forming in an oversold/neutral recovery zone).
+* **Hanging Man (Bearish Risk Warning):**
+  - **Identical Geometry:** Lower shadow $\ge 2.0\times$ body height.
+  - **RSI Threshold:** RSI(14) $\ge 50$ (confirms setup is forming after an extended upward move or overbought territory).
+
+#### 2. 3-Day Lifecycle & Confirmation Rules (Day 2 & Day 3)
+* **Day 2 Confirmation:**
+  - **Hammer:** Day 2 Close must exceed Day 1 High ($\text{Close}_2 > \text{High}_1$).
+  - **Hanging Man:** Day 2 Close must drop below Day 1 Low ($\text{Close}_2 < \text{Low}_1$).
+* **Day 3 Blueprint Execution:**
+  - **Entry Price:** Day 3 Open price.
+  - **Gap Risk Protection:** If Day 3 opens past the stop-loss level, the alert is automatically aborted.
+  - **Stop Loss:** Hammer (Long): $\text{Day 1 Low} - \$0.01$ | Hanging Man (Short): $\text{Day 1 High} + \$0.01$.
+  - **Profit Target:** Calculated at a strict **$2:1$ Reward-to-Risk ratio**.
+
+---
+
+### Engine 2: 🚀 Whole-Market AI Growth & Hidden Gem Catalyst Scanner (`scanners/growth_scanner.py`)
+
+Scans the entire US stock market for unexpected fundamental growth catalysts and volume explosions.
+
+#### 1. Market-Wide Screener & Pre-Filter
+* **Market Universe:** Scrapes Yahoo Finance real-time screeners (`most_actives`, `day_gainers`, `small_cap_gainers`, `growth_technology_stocks`).
+* **Volume Surge Threshold:** Stock must exhibit an abnormal volume spike ($\ge 2.0\text{x}$ 20-day Volume Moving Average).
+* **News Catalyst Scraper:** Scrapes real-time Google News RSS feeds for high-impact keywords (contract wins, earnings beats, FDA approvals, strategic acquisitions, partnership deals).
+
+#### 2. Groq AI Evaluation & Alert Threshold
+* **AI Evaluation:** Sends candidates meeting volume + news criteria to **Groq Llama 3.3-70B** for fundamental evaluation.
+* **Scoring Threshold:** AI rates catalyst impact from $1.0$ to $10.0$.
+* **Alert Trigger:** Only catalysts scoring **$\ge 7.0 / 10.0$** trigger immediate email notifications and dashboard alerts.
+
+---
+
 ## 📐 3-Day Validation Cycle (Strategy Logic)
 
 Trading candlestick patterns on the day of formation without confirmation often results in false signals. Candlestick Sentinel enforces a rigid 3-day validation process:
