@@ -112,7 +112,7 @@ def _build_fallback_chain(forced_model=None):
     if gemini_key:
         gemini_base = "https://generativelanguage.googleapis.com/v1beta/openai/"
         chain.append(("Gemma-4", gemini_base, gemini_key, "gemma-4-26b-a4b-it"))
-        chain.append(("Gemini-Flash", gemini_base, gemini_key, "gemma-4-26b-a4b-it"))
+        chain.append(("Gemini-Flash", gemini_base, gemini_key, "gemini-2.0-flash"))
 
     
     openai_key = os.environ.get("OPENAI_API_KEY")
