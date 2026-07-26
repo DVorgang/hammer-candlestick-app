@@ -1216,6 +1216,7 @@ def _render_stock_body(ticker, subscriber, token):
                     "Setup Date", "Pattern", "Score", "Entry Date", "Entry Price",
                     "Stop Loss", "Profit Target", "Exit Date", "Exit Price", "Exit Reason", "Return"
                 ]
+                st.dataframe(bt_df, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
 def render_stock_detail_page(ticker, subscriber, token, show_back_button=True):
