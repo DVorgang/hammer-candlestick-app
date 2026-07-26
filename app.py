@@ -1,3 +1,4 @@
+from scanners import heartbeat_scanner
 import base64
 import os
 from datetime import timedelta
