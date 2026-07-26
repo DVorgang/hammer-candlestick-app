@@ -748,10 +748,14 @@ def format_heartbeat_digest_email(top_setups, token, base_url="http://localhost:
                 <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #ff007f; letter-spacing: 0.05em; margin-bottom: 8px;">
                     🎯 TRadar Structured Trade Blueprint
                 </div>
-                <table style="width: 100%; border-collapse: collapse; font-size: 12px; color: #f8fafc;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px; color: #f8fafc; margin-bottom: 8px;">
+                    <tr>
+                        <td style="padding: 4px 0;"><strong>Current Market Price:</strong></td>
+                        <td style="padding: 4px 0; text-align: right; color: #ffffff; font-weight: 700;">${cur_price:.2f}</td>
+                    </tr>
                     <tr>
                         <td style="padding: 4px 0;"><strong>Suggested Entry Zone:</strong></td>
-                        <td style="padding: 4px 0; text-align: right; color: #38bdf8; font-weight: 700;">${entry_low:.2f} – ${entry_high:.2f}</td>
+                        <td style="padding: 4px 0; text-align: right; color: #38bdf8; font-weight: 700;">${entry_low:.2f} – ${entry_high:.2f} <span style="font-size: 10px; color: #94a3b8; font-weight: 400;">(Dip to Ceiling)</span></td>
                     </tr>
                     <tr>
                         <td style="padding: 4px 0;"><strong>🎯 Take-Profit Target:</strong></td>
@@ -766,6 +770,9 @@ def format_heartbeat_digest_email(top_setups, token, base_url="http://localhost:
                         <td style="padding: 4px 0; text-align: right; color: #fbbf24; font-weight: 700;">{rr_ratio:.1f} : 1</td>
                     </tr>
                 </table>
+                <div style="border-top: 1px dashed #334155; padding-top: 8px; font-size: 11px; color: #cbd5e1; line-height: 1.4;">
+                    <strong>💡 How to Play:</strong> Buy near <strong>${cur_price:.2f}</strong> at market open, or set a limit order on a dip down to <strong>${entry_low:.2f}</strong>. Do not FOMO buy above <strong>${entry_high:.2f}</strong>.
+                </div>
             </div>
 
             <!-- Highlighted Trailing Lock Tip Box -->
