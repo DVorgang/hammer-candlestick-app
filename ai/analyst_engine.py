@@ -276,3 +276,69 @@ def evaluate_growth_catalyst(growth_payload, forced_model=None):
         return data
     return None
 
+
+def evaluate_heartbeat_catalyst(heartbeat_payload, forced_model=None):
+    """
+    Evaluates news headlines, volume surge, and squeeze metrics for a Heartbeat Volatility Expansion candidate.
+    Calculates the final 100-Point Conviction Score:
+      - Groq AI Catalyst Score: Max 40 Points
+      - Squeeze Tightness + Volume Surge + Candle Close + Trend Synergy Math: Max 60 Points
+    Total Conviction Score = AI Catalyst Score (40 pts) + Math Score (60 pts)
+    """
+    if not is_ai_enabled():
+        return None
+
+    ticker = heartbeat_payload.get("ticker", "UNKNOWN")
+    vol_mult = heartbeat_payload.get("vol_mult", 1.0)
+    price_change_pct = heartbeat_payload.get("price_change_pct", 0.0)
+    bb_width_pct = heartbeat_payload.get("bb_width_pct", 0.0)
+    math_score = heartbeat_payload.get("math_score", 30.0)
+    news = heartbeat_payload.get("news_headlines", [])
+    
+    instructions = (
+        "You are a Senior Quantitative & Catalyst Analyst. Your job is to analyze real-time company news headlines "
+        "and technical volatility squeeze metrics for a Heartbeat Breakout candidate. "
+        "Rate the fundamental catalyst significance on a scale of 1.0 to 40.0 points. "
+        "High-impact catalysts (FDA approvals, major contracts, earnings beats, strategic acquisitions) get 30-40 points. "
+        "Moderate news gets 20-29 points. Speculative chatter gets 10-19 points. "
+        "Return ONLY JSON with keys: ai_catalyst_score (float 1-40), catalyst_type (string, e.g. Contract Win, FDA Approval, Earnings Beat, Strategic Expansion, Catalyst Surge), "
+        "headline_summary (string), key_catalysts (array of strings), risks (array of strings), plain_english_takeaway (string)."
+    )
+
+    prompt = f"""
+    Analyze the Heartbeat Volatility Breakout for ticker {ticker}:
+    - Volume Surge Multiplier: {vol_mult:.2f}x (vs 20-Day Normalized ADTV)
+    - Price Breakout Change: +{price_change_pct:.2f}%
+    - 15-Day Squeeze Bollinger Band Width: {bb_width_pct:.2f}% (Tight Squeeze Baseline)
+    - Quantitative Math Score: {math_score:.1f} / 60.0 Points
+    - Recent Headlines:
+    {json.dumps(news, indent=2)}
+
+    Evaluate if this heartbeat volume breakout is driven by a genuine high-impact fundamental catalyst.
+    """
+
+    data = _call_ai_with_fallback(instructions, prompt, context_label=f"Heartbeat-{ticker}", forced_model=forced_model)
+    if data and isinstance(data, dict):
+        ai_cat_score = min(40.0, max(1.0, float(data.get("ai_catalyst_score") or 25.0)))
+        total_conviction = min(100.0, round(ai_cat_score + math_score, 1))
+        
+        data["ai_catalyst_score"] = ai_cat_score
+        data["math_score"] = math_score
+        data["conviction_score"] = total_conviction
+        data["ticker"] = ticker
+        data["latest_price"] = heartbeat_payload.get("latest_price")
+        data["prev_price"] = heartbeat_payload.get("prev_price")
+        data["price_change_pct"] = price_change_pct
+        data["vol_mult"] = vol_mult
+        data["latest_vol"] = heartbeat_payload.get("latest_vol")
+        data["normalized_adtv"] = heartbeat_payload.get("normalized_adtv")
+        data["bb_width_pct"] = bb_width_pct
+        data["close_ratio"] = heartbeat_payload.get("close_ratio")
+        data["squeeze_max_high"] = heartbeat_payload.get("squeeze_max_high")
+        data["above_200sma"] = heartbeat_payload.get("above_200sma")
+        data["news_articles"] = news
+        return data
+        
+    return None
+
+

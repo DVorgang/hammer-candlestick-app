@@ -1,6 +1,7 @@
 import logging
 import html
 import smtplib
+import base64
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.utils import formataddr
@@ -647,9 +648,169 @@ def format_growth_catalyst_email(growth_res, token, base_url="http://localhost:8
     <div style="border-top: 1px solid #edf2f7; padding-top: 16px; text-align: center; font-size: 12px; color: #a0aec0;">
         <p style="margin-bottom: 8px;">You received this Growth Catalyst alert because you subscribed to <strong>{ticker}</strong> monitoring.</p>
         <p style="margin: 0;">
-            <a href="{manage_url}" style="color: #4f46e5; text-decoration: underline; font-weight: 600;">Manage Watchlist</a> 
-            &nbsp;|&nbsp; 
             <a href="{unsubscribe_url}" style="color: #e53e3e; text-decoration: underline; font-weight: 600;">Unsubscribe Completely</a>
+        </p>
+    </div>
+</div>
+"""
+
+def format_heartbeat_digest_email(top_setups, token, base_url="http://localhost:8501"):
+    """
+    Formats a responsive HTML email digest for Heartbeat Volatility Expansion breakouts.
+    Includes Conviction Score (0-100), Trade Blueprint (Entry, Stop-Loss, Take-Profit), 
+    Trailing Lock Tip callout box, crisp SVG heart logo header, and 24/7 public TradingView/Yahoo/Finviz chart links.
+    """
+    if not top_setups:
+        return "<p>No heartbeat setups discovered.</p>"
+
+    manage_url = f"{base_url}/?token={token}&action=manage"
+    unsubscribe_url = f"{base_url}/?token={token}&action=unsubscribe"
+    top_tickers_str = ", ".join(x.get("ticker", "") for x in top_setups)
+
+    # Crisp lightweight SVG Heart EKG Pulse Icon (0.3 KB vs 350 KB Base64 image) to prevent Gmail clipping
+    logo_img_html = """
+    <svg width="52" height="52" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle; margin-bottom: 6px; filter: drop-shadow(0px 4px 10px rgba(244,114,182,0.6));">
+        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" fill="#f472b6" fill-opacity="0.25" stroke="#f472b6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M3.5 12h3.5l1.5-3 2.5 6 2-4 1.5 1h4" stroke="#ff007f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    """
+
+    cards_html = ""
+    for idx, item in enumerate(top_setups, 1):
+        ticker = html.escape(str(item.get("ticker", "TICKER")))
+        c_score = float(item.get("conviction_score") or 80.0)
+        c_type = html.escape(str(item.get("catalyst_type") or "Heartbeat Surge"))
+        summary = html.escape(str(item.get("headline_summary") or ""))
+        takeaway = html.escape(str(item.get("plain_english_takeaway") or ""))
+        badge_tag = html.escape(str(item.get("badge_tag") or "SLEEPING GIANT HEARTBEAT PULSE"))
+        badge_color = html.escape(str(item.get("badge_color") or "#ff007f"))
+        
+        cur_price = float(item.get("latest_price") or 0.0)
+        change_pct = float(item.get("price_change_pct") or 0.0)
+        vol_mult = float(item.get("vol_mult") or 3.0)
+        bb_width = float(item.get("bb_width_pct") or 8.0)
+        above_200 = bool(item.get("above_200sma", False))
+        
+        # Calculate Trade Blueprint Targets
+        if cur_price <= 5.00:
+            target_pct = 0.32  # +32% Target for Penny Microcaps
+            stop_pct = 0.065   # -6.5% Stop
+        else:
+            target_pct = 0.20  # +20% Target for Mid/Large Caps
+            stop_pct = 0.05    # -5.0% Stop
+            
+        entry_low = round(cur_price * 0.98, 2)
+        entry_high = round(cur_price * 1.04, 2)
+        take_profit = round(cur_price * (1.0 + target_pct), 2)
+        stop_loss = round(cur_price * (1.0 - stop_pct), 2)
+        trailing_trigger = round(cur_price * 1.15, 2)
+        rr_ratio = round(target_pct / stop_pct, 1)
+        
+        key_cats_list = item.get("key_catalysts", [])
+        key_cats = "".join(f"<li style='margin-bottom: 2px;'>{html.escape(str(c))}</li>" for c in key_cats_list) if key_cats_list else "<li>Volume Squeeze Breakout</li>"
+        
+        tv_link = f"https://www.tradingview.com/chart/?symbol={ticker}"
+        yh_link = f"https://finance.yahoo.com/quote/{ticker}/chart"
+        fz_link = f"https://finviz.com/quote.ashx?t={ticker}"
+        
+        cards_html += f"""
+        <div style="background-color: #ffffff; border: 2px solid #f1f5f9; border-radius: 12px; padding: 20px; margin-bottom: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.04);">
+            
+            <!-- Card Header & Badge -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #f1f5f9; padding-bottom: 12px;">
+                <div>
+                    <span style="font-size: 22px; font-weight: 800; color: #0f172a; letter-spacing: -0.02em;">#{idx} {ticker}</span>
+                    <span style="font-size: 13px; color: #64748b; margin-left: 8px;">${cur_price:.2f} ({change_pct:+.2f}%)</span>
+                </div>
+                <div style="text-align: right;">
+                    <span style="background-color: {badge_color}; color: #ffffff; font-size: 10px; font-weight: 800; text-transform: uppercase; padding: 4px 10px; border-radius: 9999px; letter-spacing: 0.05em; display: inline-block;">
+                        {badge_tag}
+                    </span>
+                    <div style="font-size: 11px; font-weight: 800; color: #059669; margin-top: 4px;">Conviction: {c_score:.1f} / 100</div>
+                </div>
+            </div>
+            
+            <!-- Quantitative Squeeze Metrics Table -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 14px; background-color: #f8fafc; border-radius: 8px; font-size: 12px;">
+                <tr>
+                    <td style="padding: 8px 12px; color: #475569;">Buying Surge: <strong style="color: #d97706;">{vol_mult:.2f}x Normal Volume 🔥</strong></td>
+                    <td style="padding: 8px 12px; color: #475569;">Price Squeeze: <strong style="color: #2563eb;">Ultra-Tight ({bb_width:.1f}%) 🎯</strong></td>
+                    <td style="padding: 8px 12px; color: #475569;">1-Year Trend: <strong style="color: #059669;">{"Healthy Uptrend ✅" if above_200 else "Neutral Baseline ➖"}</strong></td>
+                </tr>
+            </table>
+
+            <p style="margin: 0 0 10px 0; font-size: 13px; line-height: 1.5; color: #1e293b; font-weight: 600;">
+                {summary}
+            </p>
+
+            <!-- Trade Blueprint Box -->
+            <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border-radius: 8px; padding: 14px; margin-bottom: 14px; color: #ffffff;">
+                <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #ff007f; letter-spacing: 0.05em; margin-bottom: 8px;">
+                    🎯 TRadar Structured Trade Blueprint
+                </div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px; color: #f8fafc;">
+                    <tr>
+                        <td style="padding: 4px 0;"><strong>Suggested Entry Zone:</strong></td>
+                        <td style="padding: 4px 0; text-align: right; color: #38bdf8; font-weight: 700;">${entry_low:.2f} – ${entry_high:.2f}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 4px 0;"><strong>🎯 Take-Profit Target:</strong></td>
+                        <td style="padding: 4px 0; text-align: right; color: #4ade80; font-weight: 700;">${take_profit:.2f} (+{target_pct*100:.1f}%)</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 4px 0;"><strong>🛑 Stop-Loss Protection:</strong></td>
+                        <td style="padding: 4px 0; text-align: right; color: #f87171; font-weight: 700;">${stop_loss:.2f} (-{stop_pct*100:.1f}%)</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 4px 0;"><strong>Reward-to-Risk Ratio:</strong></td>
+                        <td style="padding: 4px 0; text-align: right; color: #fbbf24; font-weight: 700;">{rr_ratio:.1f} : 1</td>
+                    </tr>
+                </table>
+            </div>
+
+            <!-- Highlighted Trailing Lock Tip Box -->
+            <div style="background-color: #fdf2f8; border-left: 4px solid #db2777; padding: 10px 12px; border-radius: 4px; margin-bottom: 14px; font-size: 12px; color: #831843;">
+                <strong>💡 Trailing Lock Tip:</strong> Once price reaches <strong>${trailing_trigger:.2f} (+15%)</strong>, move your stop-loss order up to <strong>${entry_low:.2f} (breakeven)</strong> to guarantee a 100% risk-free trade while riding remaining upside!
+            </div>
+            
+            <p style="margin: 0 0 4px 0; font-size: 12px; font-weight: 700; color: #059669;">Key Catalyst Drivers:</p>
+            <ul style="margin: 0 0 12px 0; padding-left: 18px; font-size: 12px; color: #334155; line-height: 1.4;">{key_cats}</ul>
+            
+            <p style="margin: 0 0 14px 0; font-size: 12px; line-height: 1.4; color: #334155;"><strong>Plain-English Takeaway:</strong> {takeaway}</p>
+            
+            <!-- 1-Click Public 24/7 Chart Action Buttons -->
+            <div style="text-align: center; border-top: 1px solid #f1f5f9; padding-top: 12px;">
+                <a href="{tv_link}" target="_blank" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-size: 11px; font-weight: 700; text-decoration: none; padding: 6px 12px; border-radius: 6px; margin-right: 6px;">📈 TradingView Live Chart</a>
+                <a href="{yh_link}" target="_blank" style="display: inline-block; background-color: #7c3aed; color: #ffffff; font-size: 11px; font-weight: 700; text-decoration: none; padding: 6px 12px; border-radius: 6px; margin-right: 6px;">📊 Yahoo Technicals</a>
+                <a href="{fz_link}" target="_blank" style="display: inline-block; background-color: #059669; color: #ffffff; font-size: 11px; font-weight: 700; text-decoration: none; padding: 6px 12px; border-radius: 6px;">📰 Finviz News</a>
+            </div>
+        </div>
+        """
+
+    return f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05); color: #1a202c;">
+    
+    <!-- Top Header & Banner -->
+    <div style="background: linear-gradient(135deg, #831843 0%, #4c1d95 100%); padding: 24px; border-radius: 10px; text-align: center; margin-bottom: 24px; color: #ffffff;">
+        <div style="margin-bottom: 6px;">
+            {logo_img_html}
+        </div>
+        <span style="display: inline-block; background-color: #f472b6; color: #831843; font-size: 11px; font-weight: 800; text-transform: uppercase; padding: 4px 14px; border-radius: 9999px; letter-spacing: 0.05em; margin-bottom: 8px;">
+            TRADAR HEARTBEAT VOLATILITY EXPANSION
+        </span>
+        <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #ffffff;">Top {len(top_setups)} Heartbeat Breakouts Today</h1>
+        <p style="margin: 6px 0 0 0; font-size: 13px; color: #fbcfe8;">Featured Sleeping Giant Pulses: {top_tickers_str} • Groq AI Evaluated</p>
+    </div>
+
+    {cards_html}
+    
+    <!-- Footer -->
+    <div style="border-top: 1px solid #edf2f7; padding-top: 16px; text-align: center; font-size: 12px; color: #94a3b8;">
+        <p style="margin-bottom: 8px;">You are receiving this automated TRadar Heartbeat Volatility Digest because you subscribed to Heartbeat alerts.</p>
+        <p style="margin: 0;">
+            <a href="{manage_url}" style="color: #2563eb; text-decoration: underline; font-weight: 600;">Manage Preferences</a> 
+            &nbsp;|&nbsp; 
+            <a href="{unsubscribe_url}" style="color: #dc2626; text-decoration: underline; font-weight: 600;">Unsubscribe Completely</a>
         </p>
     </div>
 </div>

@@ -1,11 +1,12 @@
-# TRadar - AI Market Intelligence & Growth Catalyst Engine
+# TRadar - AI Market Intelligence & 3-Engine Growth Catalyst Platform
 
 TRadar is a local-first market intelligence dashboard and automated email alert system built with Python, Streamlit, Plotly, yfinance, AI model integrations, SMTP email delivery, and SQLite.
 
-The app combines two complementary scanners:
+The platform combines three complementary scanning engines:
 
-- A watchlist-based candlestick technical reversal scanner for Hammer and Hanging Man setups.
-- A whole-market growth catalyst scanner for unusual volume, fresh news catalysts, and AI-ranked breakout candidates.
+1. **📊 Candlestick Technical Reversal Engine:** Watchlist-based technical reversal scanner for Hammer and Hanging Man setups with RSI oversold validation and 2:1 trade blueprints.
+2. **🚀 Whole-Market AI Growth Engine:** Market-wide scanner for unusual volume, fresh news catalysts, and AI-ranked contract/earnings breakout candidates.
+3. **💓 Heartbeat Volatility Expansion Engine:** Sleeping giant breakout scanner detecting tight multi-week squeezes (Bollinger Band Width < 12%) with sudden QRS Volume Pulses (>= 3.0x Normalized ADTV) and 100-Point Conviction Scoring.
 
 It also includes a Streamlit control panel, live quote/deep-dive pages, post-alert outcome tracking, digest-style email alerts, secondary email delivery, and Docker/daemon support for 24/7 operation.
 
@@ -36,6 +37,15 @@ It also includes a Streamlit control panel, live quote/deep-dive pages, post-ale
 - Sends qualifying candidates to the AI analyst.
 - Sends a single Top-3 Market Growth Digest for elite candidates.
 - Records growth discoveries and applies cooldown logic to reduce duplicate growth alerts.
+
+### 💓 Heartbeat Volatility Expansion Engine
+
+- Identifies dormant "Sleeping Giant" stocks ($1.00+ price floor) consolidating in ultra-tight volatility squeezes (15-day Bollinger Band Width < 12%).
+- Calculates **StockTitan Normalized ADTV** (trimmed median 20-day volume excluding outlier spike days to prevent baseline distortion).
+- Detects **QRS Volume Pulses** (current volume >= 3.0x Normalized ADTV with price breakout >= +3.0% and upper 30% candle close ratio).
+- Evaluates setup quality using a **100-Point Conviction Score** (40% Groq AI Catalyst + 25% Squeeze Tightness + 20% Volume Pulse + 15% Candle Close).
+- Implements **Smart Conditional Cooldown & Momentum Badges** (`🔥 MULTI-DAY MOMENTUM CONTINUATION`, `⚡ DOUBLE-SYNERGY BREAKOUT`, `💓 SLEEPING GIANT HEARTBEAT PULSE`).
+- Includes structured Trade Blueprint targets, Trailing Lock Tip advice, and 24/7 public TradingView/Yahoo/Finviz chart links.
 
 ### Email Alerts
 

@@ -29,6 +29,7 @@ load_env_file()
 from core import database
 from scanners import growth_scanner
 from scanners import daily_scanner
+from scanners import heartbeat_scanner
 
 HEARTBEAT_PATH = os.path.join(os.environ.get("TMPDIR", "/tmp"), "worker_heartbeat.txt")
 INTERVAL_MARKET_MINUTES = int(os.environ.get("SCAN_INTERVAL_MINUTES", "15"))
@@ -71,13 +72,14 @@ def get_market_status():
 
 def start_daemon_loop():
     logging.info("=========================================")
-    logging.info("🚀 Starting 24/7 Production Market Scanner Daemon")
+    logging.info("🚀 Starting 24/7 Production Market Scanner Daemon (Technical + Growth + Heartbeat)")
     logging.info(f"Market Interval: {INTERVAL_MARKET_MINUTES}m | Off-market Interval: {INTERVAL_OFFMARKET_MINUTES}m")
     logging.info("=========================================")
     
     database.init_db()
     database.set_scheduler_active(True)
     database.set_growth_scheduler_active(True)
+    database.set_heartbeat_scheduler_active(True)
     
     last_daily_scan_date = None
     
@@ -90,10 +92,11 @@ def start_daemon_loop():
             
             logging.info(f"⏰ Heartbeat check at {now_et.strftime('%Y-%m-%d %H:%M:%S %Z')}")
             
-            # 1. Market Hours Active Scan (Growth & Momentum)
+            # 1. Market Hours Active Scan (Growth & Heartbeat)
             if m_status["is_market_hours"]:
-                logging.info("📈 Market Hours Active — Triggering Growth & Catalyst Scan...")
+                logging.info("📈 Market Hours Active — Triggering Growth & Heartbeat Catalyst Scans...")
                 growth_scanner.run_growth_scan(trigger_type="24_7_daemon")
+                heartbeat_scanner.run_heartbeat_scan(trigger_type="24_7_daemon")
                 database.resolve_pending_alert_outcomes()
                 sleep_seconds = INTERVAL_MARKET_MINUTES * 60
             

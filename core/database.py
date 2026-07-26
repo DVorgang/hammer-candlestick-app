@@ -103,6 +103,22 @@ def init_db():
     );
     """
     
+    create_heartbeat_discoveries_table = """
+    CREATE TABLE IF NOT EXISTS heartbeat_discoveries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticker TEXT NOT NULL,
+        discovery_date TEXT NOT NULL,
+        initial_price REAL,
+        conviction_score REAL NOT NULL,
+        catalyst_type TEXT,
+        headline_summary TEXT,
+        last_featured_date TEXT NOT NULL,
+        status TEXT DEFAULT 'active_monitoring',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(ticker, discovery_date)
+    );
+    """
+    
     conn = get_db_connection()
     try:
         with conn:
@@ -112,6 +128,7 @@ def init_db():
             conn.execute(create_scanner_logs_table)
             conn.execute(create_scheduler_state_table)
             conn.execute(create_growth_discoveries_table)
+            conn.execute(create_heartbeat_discoveries_table)
             
             # Ensure default row 1 exists in scheduler_state
             conn.execute("INSERT OR IGNORE INTO scheduler_state (id, is_active, start_timestamp) VALUES (1, 0, NULL);")
@@ -125,6 +142,8 @@ def init_db():
                 conn.execute("ALTER TABLE subscribers ADD COLUMN otp_expiry TEXT;")
             if "wants_growth" not in columns:
                 conn.execute("ALTER TABLE subscribers ADD COLUMN wants_growth INTEGER DEFAULT 1;")
+            if "wants_heartbeat" not in columns:
+                conn.execute("ALTER TABLE subscribers ADD COLUMN wants_heartbeat INTEGER DEFAULT 1;")
             if "secondary_email" not in columns:
                 conn.execute("ALTER TABLE subscribers ADD COLUMN secondary_email TEXT;")
                 
@@ -136,6 +155,12 @@ def init_db():
                 conn.execute("ALTER TABLE scheduler_state ADD COLUMN growth_start_timestamp TEXT;")
             if "growth_last_run_timestamp" not in s_columns:
                 conn.execute("ALTER TABLE scheduler_state ADD COLUMN growth_last_run_timestamp TEXT;")
+            if "heartbeat_is_active" not in s_columns:
+                conn.execute("ALTER TABLE scheduler_state ADD COLUMN heartbeat_is_active INTEGER DEFAULT 0;")
+            if "heartbeat_start_timestamp" not in s_columns:
+                conn.execute("ALTER TABLE scheduler_state ADD COLUMN heartbeat_start_timestamp TEXT;")
+            if "heartbeat_last_run_timestamp" not in s_columns:
+                conn.execute("ALTER TABLE scheduler_state ADD COLUMN heartbeat_last_run_timestamp TEXT;")
 
             # Check outcome tracking columns in sent_alerts
             cursor_a = conn.execute("PRAGMA table_info(sent_alerts);")
@@ -714,8 +739,8 @@ def get_all_alert_outcomes(limit=50, filter_technical_only=True):
 
 def update_scheduler_last_run(scan_type="technical"):
     """
-    Atomically updates last_run_timestamp or growth_last_run_timestamp BEFORE scan execution
-    to prevent duplicate concurrent scan triggers.
+    Atomically updates last_run_timestamp, growth_last_run_timestamp, or heartbeat_last_run_timestamp 
+    BEFORE scan execution to prevent duplicate concurrent scan triggers.
     """
     conn = get_db_connection()
     try:
@@ -723,6 +748,8 @@ def update_scheduler_last_run(scan_type="technical"):
         with conn:
             if scan_type == "growth":
                 conn.execute("UPDATE scheduler_state SET growth_last_run_timestamp = ? WHERE id = 1;", (now_str,))
+            elif scan_type == "heartbeat":
+                conn.execute("UPDATE scheduler_state SET heartbeat_last_run_timestamp = ? WHERE id = 1;", (now_str,))
             else:
                 conn.execute("UPDATE scheduler_state SET last_run_timestamp = ? WHERE id = 1;", (now_str,))
         return True
@@ -749,6 +776,8 @@ def record_scan_log(duration_seconds, tickers_scanned, signals_found, alerts_sen
             )
             if "growth" in str(trigger_type).lower():
                 conn.execute("UPDATE scheduler_state SET growth_last_run_timestamp = ? WHERE id = 1;", (now_str,))
+            elif "heartbeat" in str(trigger_type).lower():
+                conn.execute("UPDATE scheduler_state SET heartbeat_last_run_timestamp = ? WHERE id = 1;", (now_str,))
             else:
                 conn.execute("UPDATE scheduler_state SET last_run_timestamp = ? WHERE id = 1;", (now_str,))
         return True
@@ -982,6 +1011,142 @@ def get_recent_growth_discoveries(limit=30):
         return [dict(r) for r in rows]
     except sqlite3.Error as e:
         logging.error(f"Database error fetching recent growth discoveries: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def set_heartbeat_scheduler_active(is_active):
+    """
+    Sets the heartbeat auto-scheduler active toggle state.
+    """
+    conn = get_db_connection()
+    try:
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with conn:
+            if is_active:
+                conn.execute(
+                    "UPDATE scheduler_state SET heartbeat_is_active = 1, heartbeat_start_timestamp = ? WHERE id = 1;",
+                    (now_str,)
+                )
+            else:
+                conn.execute(
+                    "UPDATE scheduler_state SET heartbeat_is_active = 0, heartbeat_start_timestamp = NULL WHERE id = 1;"
+                )
+        return True
+    except sqlite3.Error as e:
+        logging.error(f"Database error setting heartbeat scheduler active: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def record_heartbeat_discovery(ticker, conviction_score, catalyst_type, headline_summary="", initial_price=None):
+    """
+    Records a new AI Heartbeat Volatility Discovery in sentinel.db or updates last_featured_date if existing.
+    """
+    ticker = ticker.strip().upper()
+    now_date = datetime.now().strftime("%Y-%m-%d")
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        existing = cursor.execute(
+            "SELECT id FROM heartbeat_discoveries WHERE ticker = ? AND discovery_date = ?;",
+            (ticker, now_date)
+        ).fetchone()
+
+        with conn:
+            if existing:
+                conn.execute(
+                    """
+                    UPDATE heartbeat_discoveries 
+                    SET conviction_score = ?, catalyst_type = ?, headline_summary = ?, last_featured_date = ?
+                    WHERE id = ?;
+                    """,
+                    (float(conviction_score), catalyst_type, headline_summary, now_date, existing["id"])
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO heartbeat_discoveries 
+                    (ticker, discovery_date, initial_price, conviction_score, catalyst_type, headline_summary, last_featured_date)
+                    VALUES (?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (ticker, now_date, initial_price, float(conviction_score), catalyst_type, headline_summary, now_date)
+                )
+        return True
+    except sqlite3.Error as e:
+        logging.error(f"Database error recording heartbeat discovery for {ticker}: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def check_heartbeat_cooldown_status(ticker, conviction_score=0.0, cooldown_days=5):
+    """
+    Implements Smart Conditional Cooldown for Heartbeat setups:
+    - Case 1: Suppressed if featured within 5 days AND score/news hasn't improved.
+    - Case 2: Re-triggered with '🔥 MULTI-DAY MOMENTUM CONTINUATION' if conviction score increased by >= 5.0 points.
+    Returns dict: {'is_suppressed': bool, 'is_retrigger': bool}
+    """
+    ticker = ticker.strip().upper()
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        row = cursor.execute(
+            """
+            SELECT last_featured_date, conviction_score FROM heartbeat_discoveries 
+            WHERE ticker = ? 
+            ORDER BY id DESC LIMIT 1;
+            """,
+            (ticker,)
+        ).fetchone()
+
+        if not row:
+            return {"is_suppressed": False, "is_retrigger": False}
+
+        last_date_str = row["last_featured_date"]
+        prev_score = float(row["conviction_score"] or 0.0)
+
+        try:
+            last_date = datetime.strptime(last_date_str, "%Y-%m-%d")
+            delta_days = (datetime.now() - last_date).days
+
+            if delta_days >= cooldown_days:
+                return {"is_suppressed": False, "is_retrigger": False}
+
+            # If within 5 days, check if score increased significantly (+5.0 points)
+            if float(conviction_score) >= prev_score + 5.0:
+                logging.info(f"🔥 Heartbeat re-trigger for {ticker}: Conviction score jumped from {prev_score:.1f} to {conviction_score:.1f}")
+                return {"is_suppressed": False, "is_retrigger": True}
+
+            # Otherwise suppressed as duplicate
+            return {"is_suppressed": True, "is_retrigger": False}
+
+        except Exception:
+            return {"is_suppressed": False, "is_retrigger": False}
+
+    except sqlite3.Error as e:
+        logging.error(f"Database error checking heartbeat cooldown for {ticker}: {e}")
+        return {"is_suppressed": False, "is_retrigger": False}
+    finally:
+        conn.close()
+
+
+def get_recent_heartbeat_discoveries(limit=30):
+    """
+    Fetches all recent heartbeat discoveries for UI reporting in Section 3 and outcome tracking.
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        rows = cursor.execute("""
+            SELECT * FROM heartbeat_discoveries 
+            ORDER BY id DESC LIMIT ?;
+        """, (limit,)).fetchall()
+        return [dict(r) for r in rows]
+    except sqlite3.Error as e:
+        logging.error(f"Database error fetching recent heartbeat discoveries: {e}")
         return []
     finally:
         conn.close()

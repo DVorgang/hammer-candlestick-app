@@ -95,6 +95,14 @@ def _run_background_scheduler_loop():
                         database.update_scheduler_last_run("growth")
                         growth_scanner.run_growth_scan(trigger_type="scheduled")
 
+                # 3. AI Heartbeat Volatility Auto-Scheduler (Market Schedule: 9:00 AM & 4:30 PM EST)
+                if state.get("heartbeat_is_active"):
+                    h_last_run = state.get("heartbeat_last_run_timestamp")
+                    if _should_trigger_market_slot_scan(h_last_run):
+                        logging.info("⏰ Triggering Scheduled AI Heartbeat Volatility Scan (Market Schedule: 9:00 AM / 4:30 PM EST)")
+                        database.update_scheduler_last_run("heartbeat")
+                        heartbeat_scanner.run_heartbeat_scan(trigger_type="scheduled")
+
         except Exception as e:
             logging.error(f"Error in background scheduler loop: {e}")
         time.sleep(60)
@@ -1644,6 +1652,21 @@ def render_management_dashboard(subscriber, token):
             else:
                 g_uptime_str = "Active"
 
+        is_hb_active = bool(sched_state.get("heartbeat_is_active"))
+        hb_start_ts_str = sched_state.get("heartbeat_start_timestamp")
+        
+        hb_uptime_str = "Stopped"
+        if is_hb_active and hb_start_ts_str:
+            hb_start_dt = parse_dt(hb_start_ts_str)
+            if hb_start_dt:
+                delta = datetime.now() - hb_start_dt
+                days = delta.days
+                hours, remainder = divmod(delta.seconds, 3600)
+                minutes, _ = divmod(remainder, 60)
+                hb_uptime_str = f"{days}d {hours}h {minutes}m" if days > 0 else (f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m")
+            else:
+                hb_uptime_str = "Active"
+
         # Fetch latest logs for metrics display
         tech_log = database.get_last_scan_log(exclude_prefix="growth")
         t_last_time = tech_log["timestamp"] if tech_log else "Never"
@@ -1653,19 +1676,23 @@ def render_management_dashboard(subscriber, token):
         g_last_time = growth_log["timestamp"] if growth_log else "Never"
         g_last_dur = f"{growth_log['duration_seconds']:.2f}s" if growth_log else "n/a"
 
-        # Section 1 Header
-        st.markdown('<h3 style="color: #f8fafc; font-weight: 800; margin-top: 0; margin-bottom: 8px;">⚡ Scanner Control Hub & Auto-Schedulers</h3>', unsafe_allow_html=True)
-        st.write("Manage your **Candlestick Technical Scanner** and **AI Growth Catalyst Scanner** below. Choose to run scans on-demand or enable automatic twice-daily background scheduling:")
+        hb_log = database.get_last_scan_log(trigger_prefix="heartbeat")
+        hb_last_time = hb_log["timestamp"] if hb_log else "Never"
+        hb_last_dur = f"{hb_log['duration_seconds']:.2f}s" if hb_log else "n/a"
 
-        col_tech, col_growth = st.columns(2)
+        # Section 1 Header
+        st.markdown('<h3 style="color: #f8fafc; font-weight: 800; margin-top: 0; margin-bottom: 8px;">⚡ TRadar 3-Engine Control Hub & Auto-Schedulers</h3>', unsafe_allow_html=True)
+        st.write("Manage your **Candlestick Technical Scanner**, **AI Growth Engine**, and **Heartbeat Volatility Scanner** below:")
+
+        col_tech, col_growth, col_heartbeat = st.columns(3)
         
         # ------------------- COLUMN 1: TECHNICAL SCANNER -------------------
         with col_tech:
             st.markdown("""
-            <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px; min-height: 130px; box-sizing: border-box;">
-                <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.1rem;">📊 Candlestick Technical Reversal Engine</h4>
-                <p style="color: #94a3b8; font-size: 0.85rem; line-height: 1.4; margin: 0;">
-                    Scans price charts & volume over the past 3 trading days for confirmed 
+            <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px; min-height: 140px; box-sizing: border-box;">
+                <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.05rem;">📊 Technical Reversal Engine</h4>
+                <p style="color: #94a3b8; font-size: 0.82rem; line-height: 1.4; margin: 0;">
+                    Scans price charts & volume for confirmed 
                     <strong style="color: #38df88;">Hammer Buy Reversals</strong> (RSI &lt; 50) and 
                     <strong style="color: #f87171;">Hanging Man Risk Warnings</strong>.
                 </p>
@@ -1687,7 +1714,7 @@ def render_management_dashboard(subscriber, token):
                     st.session_state.is_running_manual_tech = True
                     st.rerun()
 
-            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Market-Aligned Auto-Scheduler (9:00 AM & 4:30 PM EST):</p>", unsafe_allow_html=True)
+            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Market Auto-Scheduler (9:00 AM & 4:30 PM EST):</p>", unsafe_allow_html=True)
             toggle_label = "🛑 Stop Technical Auto-Scheduler" if is_sched_active else "⚡ Start Technical Auto-Scheduler"
             btn_type = "secondary" if is_sched_active else "primary"
             if st.button(toggle_label, type=btn_type, use_container_width=True, key="btn_tech_sched"):
@@ -1701,20 +1728,20 @@ def render_management_dashboard(subscriber, token):
             t_status_label = f"🟢 Active ({uptime_str})" if is_sched_active else "🔴 Stopped"
             st.markdown(f"""
             <div style="background: #090d16; padding: 14px; border-radius: 8px; border: 1px solid #1e293b; margin-top: 14px;">
-                <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">TECHNICAL REVERSAL SCHEDULER STATUS (scanners/daily_scanner.py)</span>
-                <div style="color: {t_status_color}; font-size: 1.1rem; font-weight: 800; margin-top: 4px;">{t_status_label}</div>
-                <div style="color: #cbd5e1; font-size: 0.85rem; margin-top: 6px;">Last Executed: <strong style="color: #f8fafc;">{t_last_time}</strong> ({t_last_dur})</div>
+                <span style="color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase;">TECHNICAL SCHEDULER STATUS</span>
+                <div style="color: {t_status_color}; font-size: 1.05rem; font-weight: 800; margin-top: 4px;">{t_status_label}</div>
+                <div style="color: #cbd5e1; font-size: 0.8rem; margin-top: 6px;">Last Run: <strong style="color: #f8fafc;">{t_last_time}</strong> ({t_last_dur})</div>
             </div>
             """, unsafe_allow_html=True)
 
         # ------------------- COLUMN 2: GROWTH CATALYST SCANNER -------------------
         with col_growth:
             st.markdown("""
-            <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px; min-height: 130px; box-sizing: border-box;">
-                <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.1rem;">🚀 Whole-Market AI Growth & Hidden Gem Catalyst Engine</h4>
-                <p style="color: #94a3b8; font-size: 0.85rem; line-height: 1.4; margin: 0;">
-                    Scans the <strong style="color: #38df88;">entire US stock market</strong> (unusual volume &ge; 2.0x, small-cap gainers, tech growth) 
-                    using <strong style="color: #60a5fa;">Groq Llama 3.3-70B</strong> to discover unexpected contract wins & breakout catalysts (&ge; 7.0/10).
+            <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px; min-height: 140px; box-sizing: border-box;">
+                <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.05rem;">🚀 Whole-Market AI Growth Engine</h4>
+                <p style="color: #94a3b8; font-size: 0.82rem; line-height: 1.4; margin: 0;">
+                    Scans the <strong style="color: #38df88;">entire US stock market</strong> for high-volume contract & earnings catalysts 
+                    evaluated by <strong style="color: #60a5fa;">Groq AI</strong> (&ge; 7.0/10).
                 </p>
             </div>
             """, unsafe_allow_html=True)
@@ -1734,7 +1761,7 @@ def render_management_dashboard(subscriber, token):
                     st.session_state.is_running_manual_growth = True
                     st.rerun()
 
-            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Market-Aligned Auto-Scheduler (9:00 AM & 4:30 PM EST):</p>", unsafe_allow_html=True)
+            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Market Auto-Scheduler (9:00 AM & 4:30 PM EST):</p>", unsafe_allow_html=True)
 
             g_toggle_label = "🛑 Stop Growth Auto-Scheduler" if is_growth_active else "🚀 Start Growth Auto-Scheduler"
             g_btn_type = "secondary" if is_growth_active else "primary"
@@ -1749,9 +1776,56 @@ def render_management_dashboard(subscriber, token):
             g_status_label = f"🟢 Active ({g_uptime_str})" if is_growth_active else "🔴 Stopped"
             st.markdown(f"""
             <div style="background: #090d16; padding: 14px; border-radius: 8px; border: 1px solid #1e293b; margin-top: 14px;">
-                <span style="color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase;">AI GROWTH SCHEDULER STATUS (scanners/growth_scanner.py)</span>
-                <div style="color: {g_status_color}; font-size: 1.1rem; font-weight: 800; margin-top: 4px;">{g_status_label}</div>
-                <div style="color: #cbd5e1; font-size: 0.85rem; margin-top: 6px;">Last Executed: <strong style="color: #f8fafc;">{g_last_time}</strong> ({g_last_dur})</div>
+                <span style="color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase;">GROWTH SCHEDULER STATUS</span>
+                <div style="color: {g_status_color}; font-size: 1.05rem; font-weight: 800; margin-top: 4px;">{g_status_label}</div>
+                <div style="color: #cbd5e1; font-size: 0.8rem; margin-top: 6px;">Last Run: <strong style="color: #f8fafc;">{g_last_time}</strong> ({g_last_dur})</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # ------------------- COLUMN 3: HEARTBEAT VOLATILITY SCANNER -------------------
+        with col_heartbeat:
+            st.markdown("""
+            <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px; min-height: 140px; box-sizing: border-box;">
+                <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.05rem;">💓 Heartbeat Volatility Expansion Engine</h4>
+                <p style="color: #94a3b8; font-size: 0.82rem; line-height: 1.4; margin: 0;">
+                    Detects <strong style="color: #f472b6;">Sleeping Giants</strong> breaking out of tight squeezes (&lt; 12% Band) with a sudden <strong style="color: #ff007f;">QRS Volume Pulse</strong> (&ge; 3.0x).
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-bottom: 6px;'>1. Run On-Demand:</p>", unsafe_allow_html=True)
+            if st.session_state.get("is_running_manual_hb"):
+                st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 💓 Scanning Heartbeat Squeezes...</div>', unsafe_allow_html=True)
+                time.sleep(0.15)
+                start_t = time.time()
+                heartbeat_scanner.run_heartbeat_scan(trigger_type="manual_ui")
+                dur = time.time() - start_t
+                st.session_state.is_running_manual_hb = False
+                st.session_state.pending_toast = f"Heartbeat scan complete! Took {dur:.2f}s."
+                st.rerun()
+            else:
+                if st.button("💓 Run Instant Heartbeat Scan", type="primary", use_container_width=True, key="btn_hb_manual"):
+                    st.session_state.is_running_manual_hb = True
+                    st.rerun()
+
+            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Market Auto-Scheduler (9:00 AM & 4:30 PM EST):</p>", unsafe_allow_html=True)
+
+            hb_toggle_label = "🛑 Stop Heartbeat Auto-Scheduler" if is_hb_active else "💓 Start Heartbeat Auto-Scheduler"
+            hb_btn_type = "secondary" if is_hb_active else "primary"
+            if st.button(hb_toggle_label, type=hb_btn_type, use_container_width=True, key="btn_hb_sched"):
+                hb_new_state = not is_hb_active
+                database.set_heartbeat_scheduler_active(hb_new_state)
+                hb_status_txt = "started" if hb_new_state else "stopped"
+                st.session_state.pending_toast = f"Heartbeat Auto-Scheduler has been {hb_status_txt}."
+                st.rerun()
+
+            hb_status_color = "#38df88" if is_hb_active else "#f87171"
+            hb_status_label = f"🟢 Active ({hb_uptime_str})" if is_hb_active else "🔴 Stopped"
+            st.markdown(f"""
+            <div style="background: #090d16; padding: 14px; border-radius: 8px; border: 1px solid #1e293b; margin-top: 14px;">
+                <span style="color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase;">HEARTBEAT SCHEDULER STATUS</span>
+                <div style="color: {hb_status_color}; font-size: 1.05rem; font-weight: 800; margin-top: 4px;">{hb_status_label}</div>
+                <div style="color: #cbd5e1; font-size: 0.8rem; margin-top: 6px;">Last Run: <strong style="color: #f8fafc;">{hb_last_time}</strong> ({hb_last_dur})</div>
             </div>
             """, unsafe_allow_html=True)
 
@@ -1760,10 +1834,12 @@ def render_management_dashboard(subscriber, token):
             w_risks = st.session_state.get("wants_risks_check", True)
             w_sells = st.session_state.get("wants_sells_check", True)
             w_growth = st.session_state.get("wants_growth_check", True)
+            w_hb = st.session_state.get("wants_hb_check", True)
             # Only update & show toast if values actually changed from what's in the DB
             prev = (bool(subscriber["wants_buys"]), bool(subscriber["wants_risks"]),
-                    bool(subscriber["wants_sells"]), bool(subscriber.get("wants_growth", 1)))
-            new = (bool(w_buys), bool(w_risks), bool(w_sells), bool(w_growth))
+                    bool(subscriber["wants_sells"]), bool(subscriber.get("wants_growth", 1)),
+                    bool(subscriber.get("wants_heartbeat", 1)))
+            new = (bool(w_buys), bool(w_risks), bool(w_sells), bool(w_growth), bool(w_hb))
             if prev != new:
                 database.update_subscriber_preferences(token, w_buys, w_risks, w_sells, w_growth)
                 st.session_state.pending_toast = "Alert Channel preferences updated successfully."
@@ -1794,6 +1870,12 @@ def render_management_dashboard(subscriber, token):
             "🚀 Growth & Contract Catalysts (High Volume + Groq AI Growth Score >= 7/10)",
             value=bool(subscriber.get("wants_growth", 1)),
             key="wants_growth_check",
+            on_change=on_pref_change
+        )
+        st.checkbox(
+            "💓 Heartbeat Volatility Expansion (Low-Volatility Squeeze + QRS Volume Pulse)",
+            value=bool(subscriber.get("wants_heartbeat", 1)),
+            key="wants_hb_check",
             on_change=on_pref_change
         )
         st.markdown('<p style="font-size: 13px; color: #94a3b8; margin-top: 10px;">Preferences update automatically in real-time when toggled.</p>', unsafe_allow_html=True)
@@ -1881,65 +1963,90 @@ def render_management_dashboard(subscriber, token):
 
         # SECTION 3: SYSTEM LEARNING & OUTCOME PERFORMANCE MATRIX
         with st.expander("🧠 System Learning & Post-Trade Outcome Matrix", expanded=True):
-            st.write("TRadar AI continuously tracks post-alert price action for confirmed **Hammer & Hanging Man Candlestick Setups** to evaluate setup accuracy, feed outcomes back into AI analysis, and dynamically calibrate confidence scoring:")
+            st.write("TRadar AI continuously tracks post-alert price action across all 3 scanning engines to evaluate setup accuracy, feed outcomes back into AI analysis, and enforce 5-day cooldowns:")
             
-            stats = database.get_historical_accuracy_stats()
-            outcomes = database.get_all_alert_outcomes(limit=20)
+            t_m_tech, t_m_growth, t_m_hb = st.tabs([
+                "📊 1. Technical Reversals Audit",
+                "🚀 2. AI Growth Discoveries Audit",
+                "💓 3. Heartbeat Volatility Audit"
+            ])
             
-            sc1, sc2, sc3, sc4 = st.columns(4)
-            with sc1:
-                st.markdown(f'<div class="metric-value">{stats["total_resolved"]}</div>', unsafe_allow_html=True)
-                st.markdown('<div class="metric-label">Total Resolved Signals</div>', unsafe_allow_html=True)
-            with sc2:
-                wr_str = f"{stats['win_rate']:.1%}" if stats['win_rate'] is not None else "N/A"
-                st.markdown(f'<div class="metric-value" style="color: #38df88;">{wr_str}</div>', unsafe_allow_html=True)
-                st.markdown('<div class="metric-label">Historical Win Rate</div>', unsafe_allow_html=True)
-            with sc3:
-                ret_str = f"{stats['avg_return_pct']:.2%}" if stats['avg_return_pct'] is not None else "0.00%"
-                st.markdown(f'<div class="metric-value">{ret_str}</div>', unsafe_allow_html=True)
-                st.markdown('<div class="metric-label">Avg Return per Alert</div>', unsafe_allow_html=True)
-            with sc4:
-                st.markdown(f'<div class="metric-value">{stats["wins"]} W / {stats["losses"]} L</div>', unsafe_allow_html=True)
-                st.markdown('<div class="metric-label">Win / Loss Ratio</div>', unsafe_allow_html=True)
+            with t_m_tech:
+                stats = database.get_historical_accuracy_stats()
+                outcomes = database.get_all_alert_outcomes(limit=25, filter_technical_only=True)
                 
-            st.write("---")
-            if not outcomes:
-                st.info("No recorded setup alerts in database yet. Run a daily scan above to generate your first alert blueprint!")
-            else:
-                st.write("**Recent Alert Outcome Audit Log:**")
-                out_df = pd.DataFrame(outcomes)
-                out_df["Entry"] = out_df["entry_price"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
-                out_df["Stop Loss"] = out_df["stop_loss"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
-                out_df["Target"] = out_df["profit_target"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
-                out_df["Exit Price"] = out_df["exit_price"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
-                out_df["Return"] = out_df["return_pct"].map(lambda x: f"{x:.2%}" if (pd.notna(x) and x is not None) else "N/A")
-                out_df["Status"] = out_df["outcome_status"].map(lambda x: "🟢 WIN (Target Hit)" if x == "win" else ("🔴 LOSS (Stop Hit)" if x == "loss" else ("⏳ TIMEOUT" if x == "timeout" else "🟡 Pending Evaluation")))
-                
-                out_df = out_df.rename(columns={
-                    "ticker": "Ticker",
-                    "pattern_type": "Pattern",
-                    "sent_at": "Alert Sent At",
-                    "day1_date": "Setup Date"
-                })
-                st.dataframe(out_df[["Ticker", "Pattern", "Setup Date", "Entry", "Stop Loss", "Target", "Status", "Exit Price", "Return"]], use_container_width=True, hide_index=True)
+                sc1, sc2, sc3, sc4 = st.columns(4)
+                with sc1:
+                    st.markdown(f'<div class="metric-value">{stats["total_resolved"]}</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="metric-label">Total Resolved Signals</div>', unsafe_allow_html=True)
+                with sc2:
+                    wr_str = f"{stats['win_rate']:.1%}" if stats['win_rate'] is not None else "N/A"
+                    st.markdown(f'<div class="metric-value" style="color: #38df88;">{wr_str}</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="metric-label">Historical Win Rate</div>', unsafe_allow_html=True)
+                with sc3:
+                    ret_str = f"{stats['avg_return_pct']:.2%}" if stats['avg_return_pct'] is not None else "0.00%"
+                    st.markdown(f'<div class="metric-value">{ret_str}</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="metric-label">Avg Return per Alert</div>', unsafe_allow_html=True)
+                with sc4:
+                    st.markdown(f'<div class="metric-value">{stats["wins"]} W / {stats["losses"]} L</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="metric-label">Win / Loss Ratio</div>', unsafe_allow_html=True)
+                    
+                st.write("---")
+                if not outcomes:
+                    st.info("No recorded technical reversal alerts in database yet. Run a technical scan above to generate your first alert blueprint!")
+                else:
+                    st.write("**Technical Reversals Alert Audit Log:**")
+                    out_df = pd.DataFrame(outcomes)
+                    out_df["Entry"] = out_df["entry_price"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
+                    out_df["Stop Loss"] = out_df["stop_loss"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
+                    out_df["Target"] = out_df["profit_target"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
+                    out_df["Exit Price"] = out_df["exit_price"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
+                    out_df["Return"] = out_df["return_pct"].map(lambda x: f"{x:.2%}" if (pd.notna(x) and x is not None) else "N/A")
+                    out_df["Status"] = out_df["outcome_status"].map(lambda x: "🟢 WIN (Target Hit)" if x == "win" else ("🔴 LOSS (Stop Hit)" if x == "loss" else ("⏳ TIMEOUT" if x == "timeout" else "🟡 Pending Evaluation")))
+                    
+                    out_df = out_df.rename(columns={
+                        "ticker": "Ticker",
+                        "pattern_type": "Pattern",
+                        "sent_at": "Alert Sent At",
+                        "day1_date": "Setup Date"
+                    })
+                    st.dataframe(out_df[["Ticker", "Pattern", "Setup Date", "Entry", "Stop Loss", "Target", "Status", "Exit Price", "Return"]], use_container_width=True, hide_index=True)
 
-            st.write("---")
-            st.write("**🚀 AI Growth Discoveries & 5-Day Cooldown Audit Matrix:**")
-            recent_growths = database.get_recent_growth_discoveries(limit=15)
-            if not recent_growths:
-                st.info("No recorded market growth discoveries yet. Run a market growth scan above to populate initial AI discoveries!")
-            else:
-                g_df = pd.DataFrame(recent_growths)
-                g_df["Initial Price"] = g_df["initial_price"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
-                g_df["AI Score"] = g_df["growth_score"].map(lambda x: f"{x:.1f} / 10" if pd.notna(x) else "N/A")
-                g_df = g_df.rename(columns={
-                    "ticker": "Ticker",
-                    "catalyst_type": "Catalyst Category",
-                    "discovery_date": "Discovered Date",
-                    "last_featured_date": "Last Featured",
-                    "status": "Monitoring Status"
-                })
-                st.dataframe(g_df[["Ticker", "AI Score", "Catalyst Category", "Discovered Date", "Initial Price", "Last Featured", "Monitoring Status"]], use_container_width=True, hide_index=True)
+            with t_m_growth:
+                st.write("**🚀 AI Growth Discoveries & 5-Day Cooldown Audit Matrix:**")
+                recent_growths = database.get_recent_growth_discoveries(limit=25)
+                if not recent_growths:
+                    st.info("No recorded market growth discoveries yet. Run an AI growth scan above to populate discoveries!")
+                else:
+                    g_df = pd.DataFrame(recent_growths)
+                    g_df["Initial Price"] = g_df["initial_price"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
+                    g_df["AI Score"] = g_df["growth_score"].map(lambda x: f"{x:.1f} / 10" if pd.notna(x) else "N/A")
+                    g_df = g_df.rename(columns={
+                        "ticker": "Ticker",
+                        "catalyst_type": "Catalyst Category",
+                        "discovery_date": "Discovered Date",
+                        "last_featured_date": "Last Featured",
+                        "status": "Monitoring Status"
+                    })
+                    st.dataframe(g_df[["Ticker", "AI Score", "Catalyst Category", "Discovered Date", "Initial Price", "Last Featured", "Monitoring Status"]], use_container_width=True, hide_index=True)
+
+            with t_m_hb:
+                st.write("**💓 Heartbeat Volatility Expansion & 5-Day Cooldown Audit Matrix:**")
+                recent_hb = database.get_recent_heartbeat_discoveries(limit=25)
+                if not recent_hb:
+                    st.info("No recorded heartbeat squeeze discoveries yet. Run a heartbeat scan above to populate discoveries!")
+                else:
+                    h_df = pd.DataFrame(recent_hb)
+                    h_df["Initial Price"] = h_df["initial_price"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
+                    h_df["Conviction Score"] = h_df["conviction_score"].map(lambda x: f"{x:.1f} / 100" if pd.notna(x) else "N/A")
+                    h_df = h_df.rename(columns={
+                        "ticker": "Ticker",
+                        "catalyst_type": "Breakout Catalyst",
+                        "discovery_date": "Discovered Date",
+                        "last_featured_date": "Last Featured",
+                        "status": "Monitoring Status"
+                    })
+                    st.dataframe(h_df[["Ticker", "Conviction Score", "Breakout Catalyst", "Discovered Date", "Initial Price", "Last Featured", "Monitoring Status"]], use_container_width=True, hide_index=True)
 
 
         # SECTION 4: EXPANDABLE DROPDOWNS FOR LOGS & UTILITIES
@@ -2001,7 +2108,7 @@ def render_management_dashboard(subscriber, token):
             }
             forced_model_arg = forced_model_map.get(selected_model_label)
 
-            c_test1, c_test2, c_test3, c_test4 = st.columns(4)
+            c_test1, c_test2, c_test3, c_test4, c_test5 = st.columns(5)
             
             # --- Column 1: Single Technical Alert Test ---
             with c_test1:
@@ -2047,7 +2154,7 @@ def render_management_dashboard(subscriber, token):
                     st.rerun()
 
                 else:
-                    if st.button("📧 Test Single Alert", use_container_width=True, key="btn_test_tech_email"):
+                    if st.button("📧 Single Alert", use_container_width=True, key="btn_test_tech_email"):
                         st.session_state.is_testing_tech = True
                         st.rerun()
 
@@ -2117,7 +2224,7 @@ def render_management_dashboard(subscriber, token):
                     st.rerun()
 
                 else:
-                    if st.button("🔨 Test Watchlist Digest", use_container_width=True, key="btn_test_tech_digest"):
+                    if st.button("🔨 Technical Digest", use_container_width=True, key="btn_test_tech_digest"):
                         st.session_state.is_testing_tech_digest = True
                         st.rerun()
 
@@ -2133,32 +2240,10 @@ def render_management_dashboard(subscriber, token):
             with c_test3:
                 if st.session_state.get("is_testing_growth"):
                     st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 🚀 Assembling Growth Digest...</div>', unsafe_allow_html=True)
-                    mock_ticker = watchlist[0] if watchlist else "AMD"
-                    g_payload = growth_engine.scan_ticker_for_growth_catalyst(mock_ticker)
-                    g_res = analyst_engine.evaluate_growth_catalyst(g_payload, forced_model=forced_model_arg)
-                    if not g_res:
-                        g_res = {
-                            "ticker": mock_ticker,
-                            "growth_score": 8.5,
-                            "catalyst_type": "Earnings Beat & Revenue Surge",
-                            "headline_summary": f"{mock_ticker} announces strategic revenue beat and expanded AI computing partnerships.",
-                            "key_catalysts": ["+15% revenue beat vs estimates", "Next-gen enterprise computing deal", "Revised FY2026 guidance upward"],
-                            "risks": ["Capex acceleration", "High market competition"],
-                            "plain_english_takeaway": f"Strong growth catalyst for {mock_ticker} driving near-term momentum.",
-                            "vol_mult": 3.42,
-                            "latest_price": 145.20,
-                            "ai_model_used": forced_model_arg or "Groq-70B",
-                            "news_articles": [
-                                {"title": f"{mock_ticker} Surges on Q2 Revenue Beat & Upgraded Guidance", "link": "https://news.google.com", "pubDate": "Tue, 22 Jul 2026 14:00:00 GMT"},
-                                {"title": f"{mock_ticker} Expands Enterprise AI Partnership Footprint", "link": "https://news.google.com", "pubDate": "Mon, 21 Jul 2026 09:30:00 GMT"}
-                            ]
-                        }
-                    
                     mock_top_3 = [
-                        g_res,
                         {
                             "ticker": "RKLB",
-                            "growth_score": 8.2,
+                            "growth_score": 8.5,
                             "catalyst_type": "Contract Win",
                             "headline_summary": "Rocket Lab awarded $515M Prime Defense Satellite constellation contract.",
                             "key_catalysts": ["$515M defense satellite award", "Backlog expansion"],
@@ -2189,14 +2274,13 @@ def render_management_dashboard(subscriber, token):
                     growth_html = notifier.format_growth_digest_email(mock_top_3, token)
                     top_tickers_label = ", ".join(x["ticker"] for x in mock_top_3)
                     real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], growth_html, f"Market Growth Digest ({top_tickers_label})", secondary_email=subscriber.get("secondary_email"))
-                    g_model_tag = g_res.get("ai_model_used", "Groq AI")
 
                     st.session_state.is_testing_growth = False
-                    st.session_state.test_growth_result = (real_sent, top_tickers_label, g_model_tag, status_msg, growth_html)
+                    st.session_state.test_growth_result = (real_sent, top_tickers_label, "Groq AI", status_msg, growth_html)
                     st.rerun()
 
                 else:
-                    if st.button("🚀 Test Growth Digest", use_container_width=True, key="btn_test_growth_email"):
+                    if st.button("🚀 Growth Digest", use_container_width=True, key="btn_test_growth_email"):
                         st.session_state.is_testing_growth = True
                         st.rerun()
 
@@ -2246,7 +2330,7 @@ def render_management_dashboard(subscriber, token):
                     st.rerun()
 
                 else:
-                    if st.button("⚡ Test Synergy Alert", use_container_width=True, key="btn_test_synergy_email"):
+                    if st.button("⚡ Synergy Alert", use_container_width=True, key="btn_test_synergy_email"):
                         st.session_state.is_testing_synergy = True
                         st.rerun()
 
@@ -2257,6 +2341,72 @@ def render_management_dashboard(subscriber, token):
                         else:
                             st.info(f"ℹ️ {status_msg}")
                         st.session_state.inspect_html = (f"Cross-Engine Synergy Alert ({t_sym})", synergy_html)
+
+            # --- Column 5: Heartbeat Volatility Digest Test ---
+            with c_test5:
+                if st.session_state.get("is_testing_hb_digest"):
+                    st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 💓 Assembling Heartbeat Digest...</div>', unsafe_allow_html=True)
+                    mock_hb_top_3 = [
+                        {
+                            "ticker": "RKLB",
+                            "conviction_score": 94.5,
+                            "ai_catalyst_score": 38.5,
+                            "math_score": 56.0,
+                            "catalyst_type": "Contract Win & Squeeze Pulse",
+                            "headline_summary": "Rocket Lab breaks out of 3-week $2.10 flatline on 4.8x volume following $515M Defense Prime contract win.",
+                            "key_catalysts": ["$515M SDA Defense Prime Satellite Award", "15-Day Bollinger Band Squeeze Band Width 7.2%", "Volume Surge 4.8x Normalized ADTV"],
+                            "risks": ["Short-term profit taking near $2.85 overhead resistance"],
+                            "plain_english_takeaway": "High-conviction Heartbeat Volatility Breakout setup for RKLB exiting multi-week consolidation.",
+                            "badge_tag": "🔥 MULTI-DAY MOMENTUM CONTINUATION",
+                            "badge_color": "#ff4757",
+                            "latest_price": 2.15,
+                            "prev_price": 1.98,
+                            "price_change_pct": 8.58,
+                            "vol_mult": 4.82,
+                            "bb_width_pct": 7.20,
+                            "above_200sma": True
+                        },
+                        {
+                            "ticker": "RDW",
+                            "conviction_score": 88.0,
+                            "ai_catalyst_score": 34.0,
+                            "math_score": 54.0,
+                            "catalyst_type": "Strategic Expansion",
+                            "headline_summary": "Redwire Corporation expands space infrastructure manufacturing facilities following major NASA contract.",
+                            "key_catalysts": ["NASA commercial orbital facility expansion", "Bollinger Band Squeeze Band Width 8.4%", "Volume Surge 3.6x ADTV"],
+                            "risks": ["Supply chain delivery timing"],
+                            "plain_english_takeaway": "Sleeping giant breakout setup for RDW bouncing off 200 SMA support.",
+                            "badge_tag": "⚡ DOUBLE-SYNERGY BREAKOUT",
+                            "badge_color": "#eccc68",
+                            "latest_price": 6.45,
+                            "prev_price": 6.05,
+                            "price_change_pct": 6.61,
+                            "vol_mult": 3.64,
+                            "bb_width_pct": 8.40,
+                            "above_200sma": True
+                        }
+                    ]
+
+                    hb_digest_html = notifier.format_heartbeat_digest_email(mock_hb_top_3, token)
+                    hb_tickers_label = ", ".join(x["ticker"] for x in mock_hb_top_3)
+                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], hb_digest_html, f"Heartbeat Digest ({hb_tickers_label})", secondary_email=subscriber.get("secondary_email"))
+
+                    st.session_state.is_testing_hb_digest = False
+                    st.session_state.test_hb_digest_result = (real_sent, hb_tickers_label, "Groq AI", status_msg, hb_digest_html)
+                    st.rerun()
+
+                else:
+                    if st.button("💓 Heartbeat Digest", use_container_width=True, key="btn_test_hb_digest"):
+                        st.session_state.is_testing_hb_digest = True
+                        st.rerun()
+
+                    if "test_hb_digest_result" in st.session_state:
+                        real_sent, hb_tickers_label, g_model_tag, status_msg, hb_digest_html = st.session_state.pop("test_hb_digest_result")
+                        if real_sent:
+                            st.success(f"✅ Heartbeat Digest Email Sent ({hb_tickers_label}): {status_msg}")
+                        else:
+                            st.info(f"ℹ️ {status_msg}")
+                        st.session_state.inspect_html = (f"Heartbeat Volatility Digest ({hb_tickers_label})", hb_digest_html)
 
             if "inspect_html" in st.session_state:
                 label, h_content = st.session_state.inspect_html
