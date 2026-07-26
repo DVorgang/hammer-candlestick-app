@@ -722,11 +722,11 @@ def format_heartbeat_digest_email(top_setups, token, base_url="http://localhost:
                     <span style="font-size: 22px; font-weight: 800; color: #0f172a; letter-spacing: -0.02em;">#{idx} {ticker}</span>
                     <span style="font-size: 13px; color: #64748b; margin-left: 8px;">${cur_price:.2f} ({change_pct:+.2f}%)</span>
                 </div>
-                <div style="text-align: right;">
+                <div style="display: flex; align-items: center; gap: 8px;">
                     <span style="background-color: {badge_color}; color: #ffffff; font-size: 10px; font-weight: 800; text-transform: uppercase; padding: 4px 10px; border-radius: 9999px; letter-spacing: 0.05em; display: inline-block;">
                         {badge_tag}
                     </span>
-                    <div style="font-size: 11px; font-weight: 800; color: #059669; margin-top: 4px;">Conviction: {c_score:.1f} / 100</div>
+                    <span style="font-size: 11px; font-weight: 800; color: #059669; white-space: nowrap;">Conviction: {c_score:.1f} / 100</span>
                 </div>
             </div>
             
