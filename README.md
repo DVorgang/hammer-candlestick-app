@@ -1,10 +1,10 @@
 # TRadar - AI Market Intelligence & 3-Engine Growth Catalyst Platform
 
-TRadar is a local-first market intelligence dashboard and automated email alert system built with Python, Streamlit, Plotly, yfinance, AI model integrations, SMTP email delivery, and SQLite.
+TRadar is a local-first market intelligence dashboard and automated email alert system built with Python, Streamlit, Plotly, yfinance, Groq Llama 3.3-70B AI integration, SMTP email delivery, and SQLite.
 
 The platform combines three complementary scanning engines:
 
-1. **📊 Candlestick Technical Reversal Engine:** Watchlist-based technical reversal scanner for Hammer and Hanging Man setups with RSI oversold validation and 2:1 trade blueprints.
+1. **📊 Candlestick Technical Reversal Engine:** Watchlist-based technical reversal scanner for Hammer and Hanging Man setups with RSI oversold validation, 3-day life-cycle confirmation, and 2:1 trade blueprints.
 2. **🚀 Whole-Market AI Growth Engine:** Market-wide scanner for unusual volume, fresh news catalysts, and AI-ranked contract/earnings breakout candidates.
 3. **💓 Heartbeat Volatility Expansion Engine:** Sleeping giant breakout scanner detecting tight multi-week squeezes (Bollinger Band Width < 12%) with sudden QRS Volume Pulses (>= 3.0x Normalized ADTV) and 100-Point Conviction Scoring.
 
@@ -34,9 +34,9 @@ It also includes a Streamlit control panel, live quote/deep-dive pages, post-ale
 - Measures unusual volume against 20-day average volume.
 - Pulls recent Google News RSS headlines.
 - Pre-filters for catalyst keywords such as contracts, partnerships, FDA approvals, earnings, launches, acquisitions, revenue, grants, and awards.
-- Sends qualifying candidates to the AI analyst.
-- Sends a single Top-3 Market Growth Digest for elite candidates.
-- Records growth discoveries and applies cooldown logic to reduce duplicate growth alerts.
+- Sends qualifying candidates to the AI analyst (Groq Llama 3.3-70B).
+- Sends a single Top-3 Market Growth Digest for elite candidates (`>= 8.0/10` AI score).
+- Records growth discoveries and applies 5-day cooldown logic to reduce duplicate growth alerts.
 
 ### 💓 Heartbeat Volatility Expansion Engine
 
@@ -45,35 +45,33 @@ It also includes a Streamlit control panel, live quote/deep-dive pages, post-ale
 - Detects **QRS Volume Pulses** (current volume >= 3.0x Normalized ADTV with price breakout >= +3.0% and upper 30% candle close ratio).
 - Evaluates setup quality using a **100-Point Conviction Score** (40% Groq AI Catalyst + 25% Squeeze Tightness + 20% Volume Pulse + 15% Candle Close).
 - Implements **Smart Conditional Cooldown & Momentum Badges** (`🔥 MULTI-DAY MOMENTUM CONTINUATION`, `⚡ DOUBLE-SYNERGY BREAKOUT`, `💓 SLEEPING GIANT HEARTBEAT PULSE`).
-- Includes structured Trade Blueprint targets, Trailing Lock Tip advice, and 24/7 public TradingView/Yahoo/Finviz chart links.
+- Formats emails with plain-English labels (`Buying Surge: 3.07x Normal Volume 🔥`, `Price Squeeze: Ultra-Tight (5.3%) 🎯`, `1-Year Trend: Healthy Uptrend ✅`).
+- Includes structured Trade Blueprint targets, Current Price, explicit "How to Play" guidance, Trailing Lock Tip advice, crisp SVG heart EKG logo, and 24/7 public TradingView/Yahoo/Finviz chart links.
 
-### Email Alerts
+### Email Alerts & Secondary Recipients
 
 TRadar can send:
-
 - Single technical reversal alerts.
 - Watchlist Technical Digest emails when multiple technical setups are found.
 - Top-3 Market Growth Digest emails.
-- Synergy alerts when a technical reversal appears on a recent growth-discovery ticker.
-- Test emails from the Streamlit UI.
+- Top-3 Heartbeat Volatility Expansion Digest emails.
+- Synergy alerts when a technical reversal appears on a recent growth or heartbeat discovery.
 
-SMTP delivery uses `.env` settings. If SMTP credentials are missing, emails are simulated/logged instead of delivered.
+SMTP delivery uses `.env` settings (Gmail SMTP). Subscribers can configure a secondary CC email recipient in the UI. Alert emails are delivered to both the primary subscriber email and optional secondary recipient.
 
-Subscribers can also configure a secondary email recipient. Alert emails are delivered to both the primary subscriber email and optional secondary email.
-
-### Dashboard
+### Streamlit Control Panel
 
 The Streamlit app includes:
-
 - OTP/token-based local account access.
 - Watchlist and alert preference management.
+- 3-Engine Control Hub (1-click toggles for Technical, Growth, and Heartbeat engines).
 - Secondary email recipient management.
 - Stock search and deep-dive analysis.
-- Live quotes and charts.
-- Scanner control panel.
-- Email layout inspector and test buttons.
+- Live quotes and interactive technical charts.
+- Strategy backtester sandbox (2-year simulation).
+- Scanner control panel with test buttons.
 - Recent scanner run logs with category filtering.
-- Post-trade outcome matrix for technical candlestick setups.
+- **Categorized System Learning & Post-Trade Outcome Matrix** with 3 engine sub-tabs (Technical Reversals, AI Growth Discoveries, Heartbeat Volatility Audit).
 
 ---
 
@@ -82,28 +80,34 @@ The Streamlit app includes:
 ```text
 hammer-candlestick-app/
   ai/
-    analyst_engine.py          # AI analyst fallback chain and JSON parsing
+    analyst_engine.py          # Groq AI analyst fallback chain and JSON parsing
   assets/
-    tradar_logo.png
+    heartbeat_logo.png         # Custom glowing heart EKG logo asset
+    tradar_logo.png            # Main TRadar logo options
     traderadar_banner.png
     traderadar_logo.png
   core/
     database.py                # SQLite schema, subscribers, schedulers, logs, outcomes
     local_env.py               # Simple .env loader
+  docs/
+    plain_english_overview.md  # Simple, non-technical explanation for beginner users
   engines/
     backtest.py                # Historical 2-year strategy backtester
     growth_engine.py           # Market screeners, volume metrics, Google News RSS
+    heartbeat_engine.py        # Volatility squeeze & QRS volume pulse math engine
     pattern_engine.py          # Candlestick detection, RSI, SMAs, score calibration
   notifications/
     notifier.py                # HTML email templates and SMTP delivery
   scanners/
     daily_scanner.py           # Watchlist technical scanner
     growth_scanner.py          # Whole-market growth catalyst scanner
-    scheduler_daemon.py        # 24/7 Docker worker loop
+    heartbeat_scanner.py       # Whole-market heartbeat volatility scanner
+    scheduler_daemon.py        # 24/7 background worker loop
   tests/
     test_docker_health_and_wal.py
-    test_full_system.py
+    test_full_system.py        # 24-point cross-module integration test suite
     test_gemini.py
+    test_heartbeat_engine.py   # Heartbeat math & squeeze test suite
     test_learning_loop.py
     test_outcome_matrix_deepdive.py
   app.py                       # Streamlit UI entrypoint
@@ -138,171 +142,51 @@ AI_ANALYST_WEB_SEARCH=false
 GEMINI_API_KEY=replace_with_your_gemini_api_key_optional
 ```
 
-Notes:
-
-- SMTP credentials are required for real email delivery.
-- `GROQ_API_KEY`, `GEMINI_API_KEY`, or `OPENAI_API_KEY` are required for AI analysis.
-- Without AI keys, deterministic scanning still works, but AI summaries/growth scoring may be unavailable or fall back where the UI provides mock test content.
-
 ---
 
-## Local Setup
+## Local Setup & Quickstart
 
 Install dependencies:
 
 ```powershell
-cd D:\repo_stocks\hammer-candlestick-app
-& 'C:\Users\Devin\AppData\Local\Programs\Python\Python312\python.exe' -m pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 Run the Streamlit dashboard:
 
 ```powershell
-cd D:\repo_stocks\hammer-candlestick-app
-& 'C:\Users\Devin\AppData\Local\Programs\Python\Python312\python.exe' -m streamlit run app.py --server.address 0.0.0.0
+python -m streamlit run app.py --server.address 0.0.0.0
 ```
 
-Local browser URL:
-
-```text
-http://localhost:8501
-```
-
-LAN URL from another computer:
-
-```text
-http://<this-computer-lan-ip>:8501
-```
+Local browser URL: `http://localhost:8501`
 
 ---
 
-## Manual Scanner Commands
+## Manual Scanner CLI Commands
 
 Run the watchlist technical scanner:
-
 ```powershell
-cd D:\repo_stocks\hammer-candlestick-app
-& 'C:\Users\Devin\AppData\Local\Programs\Python\Python312\python.exe' scanners\daily_scanner.py --days 3
+python scanners/daily_scanner.py --days 3
 ```
 
 Run the whole-market growth catalyst scanner:
-
 ```powershell
-cd D:\repo_stocks\hammer-candlestick-app
-& 'C:\Users\Devin\AppData\Local\Programs\Python\Python312\python.exe' scanners\growth_scanner.py
+python scanners/growth_scanner.py
 ```
 
-Run tests:
-
+Run the whole-market heartbeat volatility scanner:
 ```powershell
-cd D:\repo_stocks\hammer-candlestick-app
-& 'C:\Users\Devin\AppData\Local\Programs\Python\Python312\python.exe' -m pytest
+python scanners/heartbeat_scanner.py
+```
+
+Run full system integration tests:
+```powershell
+python tests/test_full_system.py
 ```
 
 ---
 
-## Scanner Behavior
-
-### Technical Scanner
-
-Entrypoint:
-
-```text
-scanners/daily_scanner.py
-```
-
-The technical scanner:
-
-- Loads all subscribers from SQLite.
-- Scans each subscriber watchlist.
-- Detects confirmed Hammer/Hanging Man setups.
-- Builds entry, stop loss, and profit target fields.
-- Adds optional AI technical analysis.
-- Checks for synergy with recent growth discoveries.
-- Sends either a single alert or a Watchlist Technical Digest.
-- Sends to secondary email when configured.
-- Records sent alerts to avoid duplicates.
-- Records scanner runtime metrics.
-
-### Growth Scanner
-
-Entrypoint:
-
-```text
-scanners/growth_scanner.py
-```
-
-The growth scanner:
-
-- Builds up to 100 market-wide candidates.
-- Pre-filters candidates using volume surge and news keywords.
-- Evaluates candidates with the AI analyst.
-- Requires an elite growth score threshold of `>= 8.0`.
-- Applies a 5-day growth-discovery cooldown.
-- Sends one Top-3 Market Growth Digest email.
-- Records discoveries in `growth_discoveries`.
-- Records sent alerts and scanner logs.
-
----
-
-## Docker
-
-Docker support is included, but Docker Desktop on Windows requires virtualization support enabled in BIOS/UEFI.
-
-Compose services:
-
-```text
-streamlit-ui     # Streamlit dashboard on port 8501
-scanner-worker   # 24/7 daemon that runs growth scans and post-close technical scans
-```
-
-Start the stack:
-
-```powershell
-cd D:\repo_stocks\hammer-candlestick-app
-docker compose up -d --build
-```
-
-View logs:
-
-```powershell
-docker compose logs -f
-```
-
-Stop the stack:
-
-```powershell
-docker compose down
-```
-
-Healthchecks:
-
-- UI healthcheck uses `python healthcheck.py --mode ui`.
-- Worker healthcheck uses `python healthcheck.py --mode worker`.
-
-The Docker worker runs:
-
-```text
-python -m scanners.scheduler_daemon
-```
-
-The worker loop:
-
-- Runs growth scans during market hours.
-- Runs a full daily candlestick scan once during the post-close window.
-- Resolves pending alert outcomes periodically.
-- Updates a heartbeat file used by the worker healthcheck.
-
-Docker data mounts:
-
-```text
-./sentinel.db -> /app/sentinel.db
-./.env        -> /app/.env
-```
-
----
-
-## Database
+## Database Architecture
 
 TRadar uses SQLite via `sentinel.db`. The database layer enables WAL mode for improved concurrent read/write behavior:
 
@@ -311,96 +195,34 @@ PRAGMA journal_mode = WAL;
 ```
 
 Primary tables include:
-
-- `subscribers`
-- `watchlists`
-- `sent_alerts`
-- `scanner_logs`
-- `scheduler_state`
-- `growth_discoveries`
-
-Important subscriber fields:
-
-- `email`
-- `secondary_email`
-- `management_token`
-- `wants_buys`
-- `wants_risks`
-- `wants_sells`
-- `wants_growth`
-- `otp_code`
-- `otp_expiry`
-
-The app also stores alert outcome/resolution fields on `sent_alerts` for post-trade tracking.
+- `subscribers`: User email, secondary email, management token, engine preferences (`wants_buys`, `wants_growth`, `wants_heartbeat`).
+- `watchlists`: Tickers monitored per subscriber.
+- `sent_alerts`: Log of all dispatched alerts and outcome resolution tracking fields.
+- `scanner_logs`: Execution metrics, duration, candidate counts, and errors per scan run.
+- `scheduler_state`: 24/7 background scheduler toggles (`is_active`, `growth_is_active`, `heartbeat_is_active`) and last run timestamps.
+- `growth_discoveries`: Market growth discovery tracking and 5-day cooldown records.
+- `heartbeat_discoveries`: Heartbeat volatility breakout records and conviction scores.
 
 ---
 
-## Scheduler Options
+## Docker & Server Deployment
 
-There are two practical ways to schedule scans.
+Compose services:
+- `streamlit-ui`: Streamlit dashboard on port 8501.
+- `scanner-worker`: 24/7 daemon running scheduled growth, heartbeat, and technical reversal scans.
 
-### Local Windows Task Scheduler
-
-Use Windows Task Scheduler to run:
-
+Start the stack:
 ```powershell
-& 'C:\Users\Devin\AppData\Local\Programs\Python\Python312\python.exe' scanners\daily_scanner.py --days 3
+docker compose up -d --build
 ```
 
-or:
-
+View logs:
 ```powershell
-& 'C:\Users\Devin\AppData\Local\Programs\Python\Python312\python.exe' scanners\growth_scanner.py
+docker compose logs -f
 ```
-
-Make sure the task working directory is:
-
-```text
-D:\repo_stocks\hammer-candlestick-app
-```
-
-### Docker Worker
-
-Use the included `scanner-worker` service for a 24/7 daemon:
-
-```powershell
-docker compose up -d --build scanner-worker
-```
-
-This requires Docker Desktop or another Docker host with virtualization/container support.
-
----
-
-## Backtesting
-
-The backtesting engine lives at:
-
-```text
-engines/backtest.py
-```
-
-It simulates:
-
-- Day 1 setup.
-- Day 2 confirmation.
-- Day 3 entry.
-- Stop loss or take profit.
-- Time exit after 10 trading bars.
-
-The dashboard exposes this through the stock analysis and deep-dive views.
-
----
-
-## Operational Notes
-
-- Restart Streamlit after pulling code changes.
-- Keep `.env` out of git.
-- Keep `sentinel.db` backed up if it contains important subscriber/watchlist history.
-- The app is local-first; exposing it outside your LAN requires additional security work.
-- Docker files are included, but local Python execution remains valid and useful while Docker virtualization is unavailable.
 
 ---
 
 ## Disclaimer
 
-TRadar is for educational and informational market research only. It does not provide financial, investment, tax, or trading advice. Market data and AI-generated summaries may be delayed, incomplete, or incorrect. Always do your own research before making financial decisions.
+TRadar is for educational and market research purposes only. It does not provide financial, investment, tax, or trading advice. Market data and AI-generated summaries may be delayed or incomplete. Always perform your own research before making financial decisions.
