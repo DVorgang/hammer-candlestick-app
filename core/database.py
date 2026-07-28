@@ -828,10 +828,13 @@ def get_all_scan_logs(limit=25, filter_type=None):
     conn = get_db_connection()
     try:
         if filter_type == "technical":
-            query = "SELECT * FROM scanner_logs WHERE trigger_type NOT LIKE '%growth%' ORDER BY id DESC LIMIT ?;"
+            query = "SELECT * FROM scanner_logs WHERE trigger_type NOT LIKE '%growth%' AND trigger_type NOT LIKE '%heartbeat%' ORDER BY id DESC LIMIT ?;"
             rows = conn.execute(query, (limit,)).fetchall()
         elif filter_type == "growth":
             query = "SELECT * FROM scanner_logs WHERE trigger_type LIKE '%growth%' ORDER BY id DESC LIMIT ?;"
+            rows = conn.execute(query, (limit,)).fetchall()
+        elif filter_type == "heartbeat":
+            query = "SELECT * FROM scanner_logs WHERE trigger_type LIKE '%heartbeat%' ORDER BY id DESC LIMIT ?;"
             rows = conn.execute(query, (limit,)).fetchall()
         elif filter_type == "scheduled":
             query = "SELECT * FROM scanner_logs WHERE trigger_type LIKE '%scheduled%' ORDER BY id DESC LIMIT ?;"

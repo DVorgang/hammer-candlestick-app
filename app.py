@@ -2078,6 +2078,7 @@ def render_management_dashboard(subscriber, token):
                 "🌐 All Scanner Runs": None,
                 "📊 Technical Reversal Engine (daily_scanner.py)": "technical",
                 "🚀 AI Growth Catalyst Engine (growth_scanner.py)": "growth",
+                "Heartbeat Volatility Engine (heartbeat_scanner.py)": "heartbeat",
                 "⏰ Scheduled Background Runs Only": "scheduled",
                 "⚡ Manual On-Demand Runs Only": "manual"
             }
