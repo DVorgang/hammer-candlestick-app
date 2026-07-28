@@ -154,6 +154,11 @@ def run_heartbeat_scan(trigger_type="manual"):
                     l_price = item.get("latest_price")
                     c_score = item.get("conviction_score", 80.0)
                     g_summary = item.get("headline_summary", "")
+                    cur_price = float(l_price or 0.0)
+                    target_pct = 0.32 if cur_price <= 5.00 else 0.20
+                    stop_pct = 0.065 if cur_price <= 5.00 else 0.05
+                    stop_loss = round(cur_price * (1.0 - stop_pct), 2) if cur_price else None
+                    profit_target = round(cur_price * (1.0 + target_pct), 2) if cur_price else None
                     
                     # Record in sentinel.db heartbeat_discoveries table
                     database.record_heartbeat_discovery(t_sym, c_score, c_type, g_summary, l_price)
@@ -165,6 +170,8 @@ def run_heartbeat_scan(trigger_type="manual"):
                         "day2_date": str(datetime.now())[:10],
                         "day3_open": l_price,
                         "entry_price": l_price,
+                        "stop_loss": stop_loss,
+                        "profit_target": profit_target,
                         "vol_mult": item.get("vol_mult")
                     }
                     database.record_sent_alert(sub_id, h_signal)

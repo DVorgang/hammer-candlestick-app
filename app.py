@@ -2050,6 +2050,25 @@ def render_management_dashboard(subscriber, token):
                     })
                     st.dataframe(h_df[["Ticker", "Conviction Score", "Breakout Catalyst", "Discovered Date", "Initial Price", "Last Featured", "Monitoring Status"]], use_container_width=True, hide_index=True)
 
+                hb_outcomes = database.get_all_alert_outcomes(limit=25, filter_technical_only=False, pattern_prefix="Heartbeat_")
+                st.write("**Heartbeat Alert Outcome Log:**")
+                if not hb_outcomes:
+                    st.info("No Heartbeat alert outcomes have been recorded yet.")
+                else:
+                    hb_out_df = pd.DataFrame(hb_outcomes)
+                    hb_out_df["Entry"] = hb_out_df["entry_price"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
+                    hb_out_df["Stop Loss"] = hb_out_df["stop_loss"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
+                    hb_out_df["Target"] = hb_out_df["profit_target"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
+                    hb_out_df["Exit Price"] = hb_out_df["exit_price"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
+                    hb_out_df["Return"] = hb_out_df["return_pct"].map(lambda x: f"{x:.2%}" if (pd.notna(x) and x is not None) else "N/A")
+                    hb_out_df["Status"] = hb_out_df["outcome_status"].map(lambda x: "WIN (Target Hit)" if x == "win" else ("LOSS (Stop Hit)" if x == "loss" else ("TIMEOUT" if x == "timeout" else "Pending Evaluation")))
+                    hb_out_df = hb_out_df.rename(columns={
+                        "ticker": "Ticker",
+                        "pattern_type": "Pattern",
+                        "day1_date": "Setup Date"
+                    })
+                    st.dataframe(hb_out_df[["Ticker", "Pattern", "Setup Date", "Entry", "Stop Loss", "Target", "Status", "Exit Price", "Return"]], use_container_width=True, hide_index=True)
+
 
         # SECTION 4: EXPANDABLE DROPDOWNS FOR LOGS & UTILITIES
         with st.expander("📄 View Recent Scanner Run Logs", expanded=False):

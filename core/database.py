@@ -550,6 +550,10 @@ def resolve_pending_alert_outcomes():
       - TIMEOUT: Reached 10 trading bars without hitting target or stop
     - Growth Setups (Growth_*):
       - TIMEOUT: Reached 10 trading bars post-news; measures net return % over 10 trading bars
+    - Heartbeat Setups (Heartbeat_*):
+      - WIN: Price hit Heartbeat profit target
+      - LOSS: Price hit Heartbeat stop loss
+      - TIMEOUT: Reached 10 trading bars without hitting target or stop
     """
     import yfinance as yf
     conn = get_db_connection()
@@ -602,26 +606,18 @@ def resolve_pending_alert_outcomes():
                 exit_date = None
                 return_pct = None
 
-                if p_type in ("Hammer", "Hanging Man") and stop is not None and target is not None:
+                tracks_target_stop = (
+                    p_type in ("Hammer", "Hanging Man")
+                    or p_type.startswith("Heartbeat_")
+                ) and stop is not None and target is not None
+
+                if tracks_target_stop:
                     for _, bar in future_bars.iterrows():
                         b_high = float(bar['High'])
                         b_low = float(bar['Low'])
                         b_date = str(bar['Date_Str'])
 
-                        if p_type == "Hammer":  # Bullish Long
-                            if b_low <= stop:
-                                status = "loss"
-                                exit_price = stop
-                                exit_date = b_date
-                                return_pct = (stop - entry) / entry
-                                break
-                            elif b_high >= target:
-                                status = "win"
-                                exit_price = target
-                                exit_date = b_date
-                                return_pct = (target - entry) / entry
-                                break
-                        else:  # Hanging Man Short
+                        if p_type == "Hanging Man":  # Bearish Short
                             if b_high >= stop:
                                 status = "loss"
                                 exit_price = stop
@@ -634,8 +630,21 @@ def resolve_pending_alert_outcomes():
                                 exit_date = b_date
                                 return_pct = (entry - target) / entry
                                 break
+                        else:  # Bullish Long: Hammer or Heartbeat
+                            if b_low <= stop:
+                                status = "loss"
+                                exit_price = stop
+                                exit_date = b_date
+                                return_pct = (stop - entry) / entry
+                                break
+                            elif b_high >= target:
+                                status = "win"
+                                exit_price = target
+                                exit_date = b_date
+                                return_pct = (target - entry) / entry
+                                break
 
-                # Time-based resolution (10 trading bars elapsed) for technical timeouts or growth catalysts
+                # Time-based resolution (10 trading bars elapsed) for unresolved setups.
                 if status == "pending" and len(future_bars) >= 10:
                     last_bar = future_bars.iloc[-1]
                     status = "timeout"
@@ -675,7 +684,7 @@ def get_historical_accuracy_stats(ticker=None, pattern_type=None):
     """
     conn = get_db_connection()
     try:
-        query = "SELECT outcome_status, return_pct FROM sent_alerts WHERE outcome_status IN ('win', 'loss', 'timeout') AND pattern_type NOT LIKE 'Growth%'"
+        query = "SELECT outcome_status, return_pct FROM sent_alerts WHERE outcome_status IN ('win', 'loss', 'timeout')"
         params = []
         if ticker:
             query += " AND ticker = ?"
@@ -683,6 +692,8 @@ def get_historical_accuracy_stats(ticker=None, pattern_type=None):
         if pattern_type:
             query += " AND pattern_type = ?"
             params.append(pattern_type)
+        else:
+            query += " AND pattern_type IN ('Hammer', 'Hanging Man')"
             
         cursor = conn.cursor()
         rows = cursor.execute(query, params).fetchall()
@@ -710,7 +721,7 @@ def get_historical_accuracy_stats(ticker=None, pattern_type=None):
         conn.close()
 
 
-def get_all_alert_outcomes(limit=50, filter_technical_only=True):
+def get_all_alert_outcomes(limit=50, filter_technical_only=True, pattern_prefix=None):
     """
     Fetches historical sent alerts with their resolved outcomes for UI reporting.
     By default, restricts to Technical Candlestick Setups (Hammer / Hanging Man).
@@ -723,8 +734,11 @@ def get_all_alert_outcomes(limit=50, filter_technical_only=True):
             FROM sent_alerts
         """
         params = []
-        if filter_technical_only:
-            query += " WHERE pattern_type NOT LIKE 'Growth%'"
+        if pattern_prefix:
+            query += " WHERE pattern_type LIKE ?"
+            params.append(f"{pattern_prefix}%")
+        elif filter_technical_only:
+            query += " WHERE pattern_type IN ('Hammer', 'Hanging Man')"
         query += " ORDER BY id DESC LIMIT ?"
         params.append(limit)
         
