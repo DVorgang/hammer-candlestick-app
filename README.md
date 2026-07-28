@@ -45,6 +45,8 @@ It also includes a Streamlit control panel, live quote/deep-dive pages, post-ale
 - Detects **QRS Volume Pulses** (current volume >= 3.0x Normalized ADTV with price breakout >= +3.0% and upper 30% candle close ratio).
 - Evaluates setup quality using a **100-Point Conviction Score** (40% Groq AI Catalyst + 25% Squeeze Tightness + 20% Volume Pulse + 15% Candle Close).
 - Implements **Smart Conditional Cooldown & Momentum Badges** (`🔥 MULTI-DAY MOMENTUM CONTINUATION`, `⚡ DOUBLE-SYNERGY BREAKOUT`, `💓 SLEEPING GIANT HEARTBEAT PULSE`).
+- Displays a **Trading-Day Cooldown Counter** (`In cooldown: 4 trading days left`, `Eligible Again: 2026-07-31`) in the Heartbeat Audit Matrix.
+- Persists complete Trade Blueprint parameters (`entry_price`, `stop_loss`, `profit_target`, `vol_mult`) to SQLite for automated outcome tracking.
 - Formats emails with plain-English labels (`Buying Surge: 3.07x Normal Volume 🔥`, `Price Squeeze: Ultra-Tight (5.3%) 🎯`, `1-Year Trend: Healthy Uptrend ✅`).
 - Includes structured Trade Blueprint targets, Current Price, explicit "How to Play" guidance, Trailing Lock Tip advice, crisp SVG heart EKG logo, and 24/7 public TradingView/Yahoo/Finviz chart links.
 
@@ -70,7 +72,7 @@ The Streamlit app includes:
 - Live quotes and interactive technical charts.
 - Strategy backtester sandbox (2-year simulation).
 - Scanner control panel with test buttons.
-- Recent scanner run logs with category filtering.
+- Recent scanner run logs with dedicated category filters (`Technical`, `Growth`, `Heartbeat`).
 - **Categorized System Learning & Post-Trade Outcome Matrix** with 3 engine sub-tabs (Technical Reversals, AI Growth Discoveries, Heartbeat Volatility Audit).
 
 ---
@@ -90,6 +92,7 @@ hammer-candlestick-app/
     database.py                # SQLite schema, subscribers, schedulers, logs, outcomes
     local_env.py               # Simple .env loader
   docs/
+    heartbeat_blueprint_audit_fix.md # Blueprint persistence & outcome tracking audit fix
     plain_english_overview.md  # Simple, non-technical explanation for beginner users
   engines/
     backtest.py                # Historical 2-year strategy backtester
