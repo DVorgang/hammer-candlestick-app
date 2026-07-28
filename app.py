@@ -2041,6 +2041,9 @@ def render_management_dashboard(subscriber, token):
                     h_df = pd.DataFrame(recent_hb)
                     h_df["Initial Price"] = h_df["initial_price"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
                     h_df["Conviction Score"] = h_df["conviction_score"].map(lambda x: f"{x:.1f} / 100" if pd.notna(x) else "N/A")
+                    cooldowns = h_df["last_featured_date"].map(database.get_heartbeat_cooldown_summary)
+                    h_df["Cooldown Status"] = cooldowns.map(lambda x: x["cooldown_status"])
+                    h_df["Eligible Again"] = cooldowns.map(lambda x: x["eligible_again_date"] or "N/A")
                     h_df = h_df.rename(columns={
                         "ticker": "Ticker",
                         "catalyst_type": "Breakout Catalyst",
@@ -2048,7 +2051,7 @@ def render_management_dashboard(subscriber, token):
                         "last_featured_date": "Last Featured",
                         "status": "Monitoring Status"
                     })
-                    st.dataframe(h_df[["Ticker", "Conviction Score", "Breakout Catalyst", "Discovered Date", "Initial Price", "Last Featured", "Monitoring Status"]], use_container_width=True, hide_index=True)
+                    st.dataframe(h_df[["Ticker", "Conviction Score", "Breakout Catalyst", "Discovered Date", "Initial Price", "Last Featured", "Cooldown Status", "Eligible Again", "Monitoring Status"]], use_container_width=True, hide_index=True)
 
                 hb_outcomes = database.get_all_alert_outcomes(limit=25, filter_technical_only=False, pattern_prefix="Heartbeat_")
                 st.write("**Heartbeat Alert Outcome Log:**")

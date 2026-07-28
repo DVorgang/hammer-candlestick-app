@@ -1099,10 +1099,85 @@ def record_heartbeat_discovery(ticker, conviction_score, catalyst_type, headline
         conn.close()
 
 
+def _parse_iso_date(date_str):
+    try:
+        return datetime.strptime(str(date_str)[:10], "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def _is_trading_weekday(day):
+    return day.weekday() < 5
+
+
+def _trading_weekdays_elapsed_since(start_date, end_date=None):
+    """
+    Counts trading weekdays after start_date through end_date.
+    Weekends are excluded; exchange holidays are not modeled.
+    """
+    if not start_date:
+        return 0
+    end_date = end_date or datetime.now().date()
+    if end_date <= start_date:
+        return 0
+
+    elapsed = 0
+    current = start_date + timedelta(days=1)
+    while current <= end_date:
+        if _is_trading_weekday(current):
+            elapsed += 1
+        current += timedelta(days=1)
+    return elapsed
+
+
+def _add_trading_weekdays(start_date, trading_days):
+    if not start_date:
+        return None
+
+    added = 0
+    current = start_date
+    while added < trading_days:
+        current += timedelta(days=1)
+        if _is_trading_weekday(current):
+            added += 1
+    return current
+
+
+def get_heartbeat_cooldown_summary(last_featured_date, cooldown_days=5):
+    """
+    Returns UI-friendly Heartbeat cooldown metadata based on trading weekdays.
+    """
+    last_date = _parse_iso_date(last_featured_date)
+    if not last_date:
+        return {
+            "cooldown_days_remaining": None,
+            "eligible_again_date": None,
+            "cooldown_status": "Unknown",
+        }
+
+    elapsed = _trading_weekdays_elapsed_since(last_date)
+    days_remaining = max(0, cooldown_days - elapsed)
+    eligible_date = _add_trading_weekdays(last_date, cooldown_days)
+    eligible_str = eligible_date.strftime("%Y-%m-%d") if eligible_date else None
+
+    if days_remaining <= 0:
+        status = f"Eligible now (since {eligible_str})" if eligible_str else "Eligible now"
+    elif days_remaining == 1:
+        status = "In cooldown: 1 trading day left"
+    else:
+        status = f"In cooldown: {days_remaining} trading days left"
+
+    return {
+        "cooldown_days_remaining": days_remaining,
+        "eligible_again_date": eligible_str,
+        "cooldown_status": status,
+    }
+
+
 def check_heartbeat_cooldown_status(ticker, conviction_score=0.0, cooldown_days=5):
     """
     Implements Smart Conditional Cooldown for Heartbeat setups:
-    - Case 1: Suppressed if featured within 5 days AND score/news hasn't improved.
+    - Case 1: Suppressed if featured within 5 trading days AND score/news hasn't improved.
     - Case 2: Re-triggered with '🔥 MULTI-DAY MOMENTUM CONTINUATION' if conviction score increased by >= 5.0 points.
     Returns dict: {'is_suppressed': bool, 'is_retrigger': bool}
     """
@@ -1126,10 +1201,10 @@ def check_heartbeat_cooldown_status(ticker, conviction_score=0.0, cooldown_days=
         prev_score = float(row["conviction_score"] or 0.0)
 
         try:
-            last_date = datetime.strptime(last_date_str, "%Y-%m-%d")
-            delta_days = (datetime.now() - last_date).days
+            last_date = _parse_iso_date(last_date_str)
+            elapsed_trading_days = _trading_weekdays_elapsed_since(last_date)
 
-            if delta_days >= cooldown_days:
+            if elapsed_trading_days >= cooldown_days:
                 return {"is_suppressed": False, "is_retrigger": False}
 
             # If within 5 days, check if score increased significantly (+5.0 points)
