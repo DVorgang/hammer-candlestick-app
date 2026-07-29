@@ -185,6 +185,14 @@ def init_db():
                 if col_name not in a_columns:
                     conn.execute(f"ALTER TABLE sent_alerts ADD COLUMN {col_name} {col_type};")
 
+            # Auto-backfill Heartbeat blueprints if stop_loss or profit_target is NULL
+            conn.execute("""
+                UPDATE sent_alerts 
+                SET stop_loss = ROUND(entry_price * 0.95, 2),
+                    profit_target = ROUND(entry_price * 1.20, 2)
+                WHERE pattern_type LIKE 'Heartbeat_%' AND entry_price IS NOT NULL AND stop_loss IS NULL;
+            """)
+
         logging.info("Database initialized successfully.")
     except sqlite3.Error as e:
         logging.error(f"Error initializing database: {e}")
@@ -586,6 +594,14 @@ def resolve_pending_alert_outcomes():
             if entry is None:
                 continue
                 
+            if p_type.startswith("Heartbeat_"):
+                if stop is None:
+                    stop = round(entry * 0.95, 2)
+                    conn.execute("UPDATE sent_alerts SET stop_loss = ? WHERE id = ?;", (stop, alert_id))
+                if target is None:
+                    target = round(entry * 1.20, 2)
+                    conn.execute("UPDATE sent_alerts SET profit_target = ? WHERE id = ?;", (target, alert_id))
+                
             try:
                 hist = yf.Ticker(ticker).history(period="3mo")
                 if hist.empty:
@@ -748,7 +764,17 @@ def get_all_alert_outcomes(limit=50, filter_technical_only=True, pattern_prefix=
         params.append(limit)
         
         rows = cursor.execute(query, params).fetchall()
-        return [dict(r) for r in rows]
+        out_list = []
+        for r in rows:
+            d = dict(r)
+            if d.get("pattern_type", "").startswith("Heartbeat_") and d.get("entry_price") is not None:
+                ep = float(d["entry_price"])
+                if d.get("stop_loss") is None:
+                    d["stop_loss"] = round(ep * 0.95, 2)
+                if d.get("profit_target") is None:
+                    d["profit_target"] = round(ep * 1.20, 2)
+            out_list.append(d)
+        return out_list
     except sqlite3.Error as e:
         logging.error(f"Database error fetching alert outcomes: {e}")
         return []
