@@ -211,8 +211,14 @@ Primary tables include:
 ## Docker & Server Deployment
 
 Compose services:
-- `streamlit-ui`: Streamlit dashboard on port 8501.
-- `scanner-worker`: 24/7 daemon running scheduled growth, heartbeat, and technical reversal scans.
+- `streamlit-ui`: Streamlit dashboard on port 8501 (`candlestick_app_ui`).
+- `scanner-worker`: 24/7 daemon running scheduled growth, heartbeat, and technical reversal scans (`candlestick_app_worker`).
+
+Docker persistent data storage & environment:
+- Host persistent directory: `/home/devinv/app-data/stock-scanner/data`
+- Container volume mount: `/app/data`
+- Container database path (`DATABASE_PATH`): `/app/data/sentinel.db`
+- Environment variables: injected via `env_file: - .env`
 
 Start the stack:
 ```powershell

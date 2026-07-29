@@ -5,7 +5,7 @@ import logging
 import random
 from datetime import datetime, timedelta
 
-DB_FILE = "sentinel.db"
+DB_FILE = os.getenv("DATABASE_PATH", "sentinel.db")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -14,6 +14,9 @@ def get_db_connection():
     Establishes connection to the SQLite database with WAL mode, busy timeout, and foreign key support.
     """
     try:
+        db_dir = os.path.dirname(DB_FILE)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
         conn = sqlite3.connect(DB_FILE, timeout=30.0)
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.execute("PRAGMA busy_timeout = 5000;")

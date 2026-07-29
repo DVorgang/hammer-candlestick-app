@@ -112,7 +112,7 @@ Fill in your production keys:
 GEMINI_API_KEY=your_gemini_key_here
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
-DATABASE_PATH=/app/sentinel.db
+DATABASE_PATH=/app/data/sentinel.db
 ```
 
 ### 3. Dockerization Blueprint
@@ -155,19 +155,32 @@ services:
     command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0
     ports:
       - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      - TZ=America/New_York
+      - DATABASE_PATH=/app/data/sentinel.db
     volumes:
-      - ./sentinel.db:/app/sentinel.db
-      - ./.env:/app/.env
+      - /home/devinv/app-data/stock-scanner/data:/app/data
     restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
 
   scanner-worker:
     build: .
     container_name: candlestick_app_worker
-    command: python -m scanners.growth_scanner
+    command: python -m scanners.scheduler_daemon
+    env_file:
+      - .env
+    environment:
+      - TZ=America/New_York
+      - DATABASE_PATH=/app/data/sentinel.db
+      - SCAN_INTERVAL_MINUTES=15
     volumes:
-      - ./sentinel.db:/app/sentinel.db
-      - ./.env:/app/.env
+      - /home/devinv/app-data/stock-scanner/data:/app/data
     restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
 ```
 
 ### 4. Build and Start Stack

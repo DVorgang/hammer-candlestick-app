@@ -7,12 +7,13 @@ services:
     command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0
     ports:
       - "8501:8501"
+    env_file:
+      - .env
     environment:
       - TZ=America/New_York
-      - DATABASE_PATH=/app/sentinel.db
+      - DATABASE_PATH=/app/data/sentinel.db
     volumes:
-      - ./sentinel.db:/app/sentinel.db
-      - ./.env:/app/.env
+      - /home/devinv/app-data/stock-scanner/data:/app/data
     healthcheck:
       test: ["CMD", "python", "healthcheck.py", "--mode", "ui"]
       interval: 30s
@@ -20,18 +21,26 @@ services:
       retries: 3
       start_period: 15s
     restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   scanner-worker:
     build: .
     container_name: candlestick_app_worker
     command: python -m scanners.scheduler_daemon
+    env_file:
+      - .env
     environment:
       - TZ=America/New_York
-      - DATABASE_PATH=/app/sentinel.db
+      - DATABASE_PATH=/app/data/sentinel.db
       - SCAN_INTERVAL_MINUTES=15
     volumes:
-      - ./sentinel.db:/app/sentinel.db
-      - ./.env:/app/.env
+      - /home/devinv/app-data/stock-scanner/data:/app/data
     healthcheck:
       test: ["CMD", "python", "healthcheck.py", "--mode", "worker"]
       interval: 60s
@@ -39,3 +48,10 @@ services:
       retries: 3
       start_period: 20s
     restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
