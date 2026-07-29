@@ -728,6 +728,46 @@ def render_plotly_stock_chart(ticker, timeframe, chart_style):
         row=1, col=1
     )
     
+    # Check if Heartbeat blueprint exists for this ticker
+    hb_bp = database.get_ticker_heartbeat_blueprint(ticker)
+    if hb_bp and hb_bp.get("entry_price") and hb_bp.get("profit_target") and hb_bp.get("stop_loss"):
+        e_price = float(hb_bp["entry_price"])
+        t_price = float(hb_bp["profit_target"])
+        s_price = float(hb_bp["stop_loss"])
+        
+        # Target Line (Green)
+        fig.add_shape(
+            type="line", x0=data[date_col].iloc[0], y0=t_price, x1=data[date_col].iloc[-1], y1=t_price,
+            line=dict(color="#38df88", width=1.5, dash="dash"), row=1, col=1
+        )
+        fig.add_annotation(
+            x=data[date_col].iloc[-1], y=t_price, text=f"🎯 Target ${t_price:.2f}",
+            showarrow=False, xanchor="left", yanchor="middle", bgcolor="#15803d",
+            font=dict(color="#ffffff", size=10, family="sans-serif"), borderpad=2, row=1, col=1
+        )
+        
+        # Entry Line (Blue)
+        fig.add_shape(
+            type="line", x0=data[date_col].iloc[0], y0=e_price, x1=data[date_col].iloc[-1], y1=e_price,
+            line=dict(color="#38bdf8", width=1.5, dash="dot"), row=1, col=1
+        )
+        fig.add_annotation(
+            x=data[date_col].iloc[-1], y=e_price, text=f"🔵 Entry ${e_price:.2f}",
+            showarrow=False, xanchor="left", yanchor="middle", bgcolor="#0369a1",
+            font=dict(color="#ffffff", size=10, family="sans-serif"), borderpad=2, row=1, col=1
+        )
+        
+        # Stop-Loss Line (Red)
+        fig.add_shape(
+            type="line", x0=data[date_col].iloc[0], y0=s_price, x1=data[date_col].iloc[-1], y1=s_price,
+            line=dict(color="#f87171", width=1.5, dash="dash"), row=1, col=1
+        )
+        fig.add_annotation(
+            x=data[date_col].iloc[-1], y=s_price, text=f"🛑 Stop ${s_price:.2f}",
+            showarrow=False, xanchor="left", yanchor="middle", bgcolor="#b91c1c",
+            font=dict(color="#ffffff", size=10, family="sans-serif"), borderpad=2, row=1, col=1
+        )
+
     # Current Price Tag Badge on Right Y-Axis
     fig.add_annotation(
         x=data[date_col].iloc[-1],
@@ -1916,6 +1956,34 @@ def render_management_dashboard(subscriber, token):
             st.markdown('<div style="color: #94a3b8; font-size: 13px; margin-top: 8px;">ℹ️ No secondary CC email configured. Alerts are sent to primary email only.</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
+        # SECTION 2C: PAPER TRADING BENCHMARK POSITION SIZE
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">🎮 Paper Trading Benchmark Position Size</div>', unsafe_allow_html=True)
+        st.write("Customize your hypothetical paper trading position size benchmark. All dollar profit/loss metrics, trade risk calculators, and interactive stock chart target lines will recalculate dynamically:")
+        
+        cur_paper_size = database.get_subscriber_paper_position_size(token)
+        
+        p_col1, p_col2 = st.columns([3, 1])
+        with p_col1:
+            new_paper_size = st.number_input(
+                "Paper Benchmark Size ($)",
+                min_value=50.0,
+                max_value=50000.0,
+                value=float(cur_paper_size),
+                step=50.0,
+                help="Set benchmark dollar investment per setup (default: $500.00).",
+                key="input_paper_size"
+            )
+        with p_col2:
+            st.markdown('<div style="margin-top: 26px;"></div>', unsafe_allow_html=True)
+            if st.button("💾 Save Paper Size", type="primary", use_container_width=True, key="btn_save_paper_size"):
+                database.update_subscriber_paper_position_size(token, new_paper_size)
+                st.session_state.pending_toast = f"Paper trading benchmark size updated to: ${new_paper_size:,.2f}"
+                st.rerun()
+                
+        st.markdown(f'<div style="color: #38df88; font-size: 13px; font-weight: 700; margin-top: 8px;">✅ Active Paper Benchmark: ${cur_paper_size:,.2f} per setup</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
         # SECTION 3: EXPANDABLE DROPDOWNS FOR LOGS & UTILITIES
         with st.expander("🧪 2-Year Strategy Backtest Sandbox", expanded=False):
             st.write("Run historical simulations of the **3-day rigid trading strategy** to verify how a ticker performed over a 2-year window:")
@@ -2033,6 +2101,48 @@ def render_management_dashboard(subscriber, token):
                     st.dataframe(g_df[["Ticker", "AI Score", "Catalyst Category", "Discovered Date", "Initial Price", "Last Featured", "Monitoring Status"]], use_container_width=True, hide_index=True)
 
             with t_m_hb:
+                # 1. Calculate Hypothetical Paper Trading Benchmark Metrics
+                paper_bench_size = database.get_subscriber_paper_position_size(token)
+                all_hb_outcomes = database.get_all_alert_outcomes(limit=100, filter_technical_only=False, pattern_prefix="Heartbeat_")
+                
+                total_paper_profit = 0.0
+                total_resolved = 0
+                total_wins = 0
+                
+                for item in all_hb_outcomes:
+                    r_pct = item.get("return_pct")
+                    st_val = item.get("outcome_status")
+                    if st_val in ("win", "loss", "timeout") and r_pct is not None:
+                        dollar_gain = float(r_pct) * paper_bench_size
+                        total_paper_profit += dollar_gain
+                        total_resolved += 1
+                        if st_val == "win" or dollar_gain > 0:
+                            total_wins += 1
+                            
+                win_rate_val = (total_wins / total_resolved) if total_resolved > 0 else None
+                avg_dollar_gain = (total_paper_profit / total_resolved) if total_resolved > 0 else 0.0
+                
+                st.markdown(f"#### 🎮 Hypothetical Paper Portfolio Performance (${paper_bench_size:,.0f} Benchmark Size)")
+                p_c1, p_c2, p_c3, p_c4 = st.columns(4)
+                with p_c1:
+                    p_color = "#38df88" if total_paper_profit >= 0 else "#f87171"
+                    p_sign = "+" if total_paper_profit >= 0 else ""
+                    st.markdown(f'<div class="metric-value" style="color: {p_color};">{p_sign}${total_paper_profit:,.2f}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="metric-label">Total Paper Net Profit (${paper_bench_size:,.0f} Size)</div>', unsafe_allow_html=True)
+                with p_c2:
+                    wr_label = f"{win_rate_val:.1%}" if win_rate_val is not None else "N/A"
+                    st.markdown(f'<div class="metric-value" style="color: #38df88;">{wr_label}</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="metric-label">Heartbeat Win Rate</div>', unsafe_allow_html=True)
+                with p_c3:
+                    avg_color = "#38df88" if avg_dollar_gain >= 0 else "#f87171"
+                    avg_sign = "+" if avg_dollar_gain >= 0 else ""
+                    st.markdown(f'<div class="metric-value" style="color: {avg_color};">{avg_sign}${avg_dollar_gain:,.2f}</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="metric-label">Avg Return per $ Setup</div>', unsafe_allow_html=True)
+                with p_c4:
+                    st.markdown(f'<div class="metric-value">{total_resolved}</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="metric-label">Total Resolved Trades</div>', unsafe_allow_html=True)
+
+                st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
                 st.write("**💓 Heartbeat Volatility Expansion & 5-Day Cooldown Audit Matrix:**")
                 recent_hb = database.get_recent_heartbeat_discoveries(limit=25)
                 if not recent_hb:
@@ -2054,7 +2164,7 @@ def render_management_dashboard(subscriber, token):
                     st.dataframe(h_df[["Ticker", "Conviction Score", "Breakout Catalyst", "Discovered Date", "Initial Price", "Last Featured", "Cooldown Status", "Eligible Again", "Monitoring Status"]], use_container_width=True, hide_index=True)
 
                 hb_outcomes = database.get_all_alert_outcomes(limit=25, filter_technical_only=False, pattern_prefix="Heartbeat_")
-                st.write("**Heartbeat Alert Outcome Log:**")
+                st.write("**Heartbeat Alert Outcome Log & Paper Trade Returns:**")
                 if not hb_outcomes:
                     st.info("No Heartbeat alert outcomes have been recorded yet.")
                 else:
@@ -2064,13 +2174,17 @@ def render_management_dashboard(subscriber, token):
                     hb_out_df["Target"] = hb_out_df["profit_target"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
                     hb_out_df["Exit Price"] = hb_out_df["exit_price"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
                     hb_out_df["Return"] = hb_out_df["return_pct"].map(lambda x: f"{x:.2%}" if (pd.notna(x) and x is not None) else "N/A")
+                    hb_out_df["Paper Size"] = f"${paper_bench_size:,.2f}"
+                    hb_out_df["Net Return ($)"] = hb_out_df["return_pct"].map(
+                        lambda x: f"{'+' if x >= 0 else ''}${x * paper_bench_size:,.2f}" if (pd.notna(x) and x is not None) else "N/A"
+                    )
                     hb_out_df["Status"] = hb_out_df["outcome_status"].map(lambda x: "WIN (Target Hit)" if x == "win" else ("LOSS (Stop Hit)" if x == "loss" else ("TIMEOUT" if x == "timeout" else "Pending Evaluation")))
                     hb_out_df = hb_out_df.rename(columns={
                         "ticker": "Ticker",
                         "pattern_type": "Pattern",
                         "day1_date": "Setup Date"
                     })
-                    st.dataframe(hb_out_df[["Ticker", "Pattern", "Setup Date", "Entry", "Stop Loss", "Target", "Status", "Exit Price", "Return"]], use_container_width=True, hide_index=True)
+                    st.dataframe(hb_out_df[["Ticker", "Pattern", "Setup Date", "Entry", "Stop Loss", "Target", "Status", "Exit Price", "Return", "Paper Size", "Net Return ($)"]], use_container_width=True, hide_index=True)
 
 
         # SECTION 4: EXPANDABLE DROPDOWNS FOR LOGS & UTILITIES

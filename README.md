@@ -68,12 +68,13 @@ The Streamlit app includes:
 - Watchlist and alert preference management.
 - 3-Engine Control Hub (1-click toggles for Technical, Growth, and Heartbeat engines).
 - Secondary email recipient management.
+- **Paper Trading Position Sizer:** Customizable benchmark position size (`$250`, `$500 (Default)`, `$1,000`, or `Custom $`) in Section 2.
 - Stock search and deep-dive analysis.
-- Live quotes and interactive technical charts.
+- Live quotes and interactive technical charts with **automatic Target ($34.20), Entry ($28.50), and Stop-Loss ($27.07) line overlays**.
 - Strategy backtester sandbox (2-year simulation).
 - Scanner control panel with test buttons.
 - Recent scanner run logs with dedicated category filters (`Technical`, `Growth`, `Heartbeat`).
-- **Categorized System Learning & Post-Trade Outcome Matrix** with 3 engine sub-tabs (Technical Reversals, AI Growth Discoveries, Heartbeat Volatility Audit).
+- **Categorized System Learning & Post-Trade Outcome Matrix** with 3 engine sub-tabs (Technical Reversals, AI Growth Discoveries, Heartbeat Volatility Audit featuring **Hypothetical $500 Paper Performance Bar & Net Dollar Return Logs**).
 
 ---
 

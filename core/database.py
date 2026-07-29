@@ -149,6 +149,8 @@ def init_db():
                 conn.execute("ALTER TABLE subscribers ADD COLUMN wants_heartbeat INTEGER DEFAULT 1;")
             if "secondary_email" not in columns:
                 conn.execute("ALTER TABLE subscribers ADD COLUMN secondary_email TEXT;")
+            if "paper_position_size" not in columns:
+                conn.execute("ALTER TABLE subscribers ADD COLUMN paper_position_size REAL DEFAULT 500.0;")
                 
             cursor_s = conn.execute("PRAGMA table_info(scheduler_state);")
             s_columns = [row["name"] for row in cursor_s.fetchall()]
@@ -1243,6 +1245,66 @@ def get_recent_heartbeat_discoveries(limit=30):
     except sqlite3.Error as e:
         logging.error(f"Database error fetching recent heartbeat discoveries: {e}")
         return []
+    finally:
+        conn.close()
+
+
+def get_subscriber_paper_position_size(token):
+    """
+    Returns the subscriber's configured paper benchmark position size (defaults to 500.0).
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        row = cursor.execute("SELECT paper_position_size FROM subscribers WHERE management_token = ?;", (token,)).fetchone()
+        if row and row["paper_position_size"] is not None:
+            return float(row["paper_position_size"])
+        return 500.0
+    except sqlite3.Error as e:
+        logging.error(f"Database error getting subscriber paper position size: {e}")
+        return 500.0
+    finally:
+        conn.close()
+
+
+def update_subscriber_paper_position_size(token, position_size):
+    """
+    Updates the subscriber's configured paper benchmark position size.
+    """
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute(
+                "UPDATE subscribers SET paper_position_size = ? WHERE management_token = ?;",
+                (float(position_size), token)
+            )
+        return True
+    except sqlite3.Error as e:
+        logging.error(f"Database error updating subscriber paper position size: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def get_ticker_heartbeat_blueprint(ticker):
+    """
+    Fetches the latest recorded Heartbeat blueprint (entry_price, stop_loss, profit_target, outcome_status) for a ticker.
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        row = cursor.execute("""
+            SELECT entry_price, stop_loss, profit_target, outcome_status, return_pct
+            FROM sent_alerts 
+            WHERE ticker = ? AND pattern_type LIKE 'Heartbeat_%' AND entry_price IS NOT NULL
+            ORDER BY id DESC LIMIT 1;
+        """, (ticker.upper(),)).fetchone()
+        if row:
+            return dict(row)
+        return None
+    except sqlite3.Error as e:
+        logging.error(f"Database error fetching ticker heartbeat blueprint for {ticker}: {e}")
+        return None
     finally:
         conn.close()
 
