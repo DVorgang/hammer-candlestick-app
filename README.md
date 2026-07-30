@@ -95,6 +95,7 @@ hammer-candlestick-app/
   docs/
     heartbeat_blueprint_audit_fix.md # Blueprint persistence & outcome tracking audit fix
     plain_english_overview.md  # Simple, non-technical explanation for beginner users
+    PROXMOX_AI_AGENT_AUTOMATION_GUIDE.md # 3 options for running Antigravity AI agents in Proxmox VE
   engines/
     backtest.py                # Historical 2-year strategy backtester
     growth_engine.py           # Market screeners, volume metrics, Google News RSS
