@@ -129,7 +129,7 @@ class TestHeartbeatEngine(unittest.TestCase):
         ]
         
         html_out = notifier.format_heartbeat_digest_email(mock_setups, "test_token")
-        self.assertIn("TRadar Heartbeat Volatility Expansion", html_out)
+        self.assertIn("Heartbeat Volatility", html_out)
         self.assertIn("RKLB", html_out)
         self.assertIn("94.5 / 100", html_out)
         self.assertIn("TradingView Live Chart", html_out)

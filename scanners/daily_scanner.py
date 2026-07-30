@@ -165,69 +165,12 @@ def run_daily_scan(days_to_scan=3, trigger_type="manual"):
 
         sec_email = sub.get("secondary_email")
 
-        # Dispatch Technical Notifications (Option A Hybrid Consolidation + Cross-Engine Synergy)
-        if len(subscriber_tech_signals) == 1:
-            sig = subscriber_tech_signals[0]
-            if sig.get("is_synergy") and sig.get("discovery_info"):
-                html_body = notifier.format_synergy_alert_email(sig, sig["discovery_info"], token)
-                subj_title = f"Synergy Alert: {sig['ticker']} {sig['pattern_type']} Reversal"
-            else:
-                html_body = notifier.format_alert_email(sig, token)
-                subj_title = sig["ticker"]
-                
-            sent_real_email, status_msg = notifier.simulate_send_alert(email, html_body, subj_title, secondary_email=sec_email)
-            logging.info(f"Single Technical/Synergy delivery status for {email} / {sig['ticker']}: {status_msg}")
-            if sent_real_email:
+        # Buffer Technical Notifications for scheduled PM Digest Delivery
+        if subscriber_tech_signals:
+            logging.info(f"💾 Buffering {len(subscriber_tech_signals)} Technical Signals for {email} to database for scheduled digest delivery...")
+            for sig in subscriber_tech_signals:
                 database.record_sent_alert(sub_id, sig)
                 total_alerts_sent += 1
-        elif len(subscriber_tech_signals) >= 2:
-            tech_html = notifier.format_technical_digest_email(subscriber_tech_signals, token)
-            top_tickers_label = ", ".join(s["ticker"] for s in subscriber_tech_signals)
-            sent_real_email, status_msg = notifier.simulate_send_alert(email, tech_html, f"Watchlist Technical Digest ({top_tickers_label})", secondary_email=sec_email)
-            logging.info(f"Technical Digest delivery status for {email} / ({top_tickers_label}): {status_msg}")
-            if sent_real_email:
-                for sig in subscriber_tech_signals:
-                    database.record_sent_alert(sub_id, sig)
-                total_alerts_sent += 1
-
-            # --- 2. Growth Catalyst Scan ---
-            if wants_growth:
-                if ticker not in growth_cache:
-                    try:
-                        g_payload = growth_engine.scan_ticker_for_growth_catalyst(ticker)
-                        if g_payload.get("should_evaluate_ai"):
-                            g_res = analyst_engine.evaluate_growth_catalyst(g_payload)
-                        else:
-                            g_res = None
-                        growth_cache[ticker] = g_res
-                    except Exception as e:
-                        logging.error(f"Error checking growth catalyst for {ticker}: {e}")
-                        growth_cache[ticker] = None
-
-                growth_eval = growth_cache[ticker]
-                if growth_eval and float(growth_eval.get("growth_score") or 0.0) >= 7.0:
-                    score = float(growth_eval.get("growth_score"))
-                    cat_type = growth_eval.get("catalyst_type", "Growth Catalyst")
-                    logging.info(f"🚀 Growth Catalyst MATCHED for {email}: {ticker} {cat_type} (Score: {score:.1f}/10)")
-                    
-                    latest_price = growth_eval.get("latest_price")
-                    g_signal = {
-                        "ticker": ticker,
-                        "pattern_type": f"Growth_{cat_type}",
-                        "day1_date": str(datetime.now())[:10],
-                        "day2_date": str(datetime.now())[:10],
-                        "day3_open": latest_price,
-                        "entry_price": latest_price,
-                        "vol_mult": growth_eval.get("vol_mult")
-                    }
-
-                    if not database.has_alert_been_sent(sub_id, g_signal):
-                        g_html = notifier.format_growth_catalyst_email(growth_eval, token)
-                        sent_real_email, status_msg = notifier.simulate_send_alert(email, g_html, f"{ticker} Growth Catalyst")
-                        logging.info(f"Growth email delivery status for {email} / {ticker}: {status_msg}")
-                        if sent_real_email:
-                            database.record_sent_alert(sub_id, g_signal)
-                            total_alerts_sent += 1
                     
     duration = time.time() - start_time
     tickers_count = len(ticker_cache)

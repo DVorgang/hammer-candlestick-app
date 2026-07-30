@@ -866,6 +866,88 @@ def send_real_email(to_email, subject, html_content, secondary_email=None):
         logging.error(f"Failed to deliver SMTP email to {recipients}: {e}")
         return False
 
+def format_unified_pm_digest_email(growth_setups, heartbeat_setups, tech_signals, token, base_url="http://localhost:8501"):
+    """
+    Formats a single, consolidated HTML Post-Market Digest email containing Growth, Heartbeat, and Technical setups.
+    """
+    import html
+    manage_url = f"{base_url}/?token={token}"
+    unsubscribe_url = f"{base_url}/?token={token}&unsubscribe=true"
+
+    all_tickers = list(set([s.get("ticker") for s in (growth_setups + heartbeat_setups + tech_signals) if s.get("ticker")]))
+    tickers_str = ", ".join(all_tickers[:5])
+
+    total_count = len(growth_setups) + len(heartbeat_setups) + len(tech_signals)
+
+    cards_html = ""
+
+    if growth_setups:
+        cards_html += "<h2 style='color: #1e1b4b; font-size: 16px; margin-top: 16px; border-bottom: 2px solid #818cf8; padding-bottom: 4px;'>🚀 Market Growth Catalysts</h2>"
+        for g in growth_setups[:3]:
+            ticker = html.escape(str(g.get("ticker", "TICKER")))
+            score = float(g.get("score") or g.get("growth_score") or 8.0)
+            summary = html.escape(str(g.get("headline_summary") or "AI growth breakout setup."))
+            cards_html += f"""
+            <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+                <div style="display: flex; justify-content: space-between; font-weight: 700;">
+                    <span>🚀 {ticker}</span>
+                    <span style="color: #15803d;">Score: {score:.1f}/10</span>
+                </div>
+                <p style="font-size: 13px; color: #334155; margin: 6px 0 0 0;">{summary}</p>
+            </div>
+            """
+
+    if heartbeat_setups:
+        cards_html += "<h2 style='color: #831843; font-size: 16px; margin-top: 16px; border-bottom: 2px solid #f472b6; padding-bottom: 4px;'>💓 Heartbeat Volatility Breakouts</h2>"
+        for h in heartbeat_setups[:3]:
+            ticker = html.escape(str(h.get("ticker", "TICKER")))
+            score = float(h.get("score") or h.get("conviction_score") or 80.0)
+            summary = html.escape(str(h.get("headline_summary") or "Squeeze volume expansion."))
+            cards_html += f"""
+            <div style="background: #fff5f7; border: 1px solid #fbcfe8; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+                <div style="display: flex; justify-content: space-between; font-weight: 700;">
+                    <span>💓 {ticker}</span>
+                    <span style="color: #be185d;">Conviction: {score:.1f}/100</span>
+                </div>
+                <p style="font-size: 13px; color: #334155; margin: 6px 0 0 0;">{summary}</p>
+            </div>
+            """
+
+    if tech_signals:
+        cards_html += "<h2 style='color: #0f172a; font-size: 16px; margin-top: 16px; border-bottom: 2px solid #64748b; padding-bottom: 4px;'>📊 Technical Watchlist Reversals</h2>"
+        for t in tech_signals:
+            ticker = html.escape(str(t.get("ticker", "TICKER")))
+            pattern = html.escape(str(t.get("pattern_type", "Reversal")))
+            entry = float(t.get("entry_price") or 0.0)
+            cards_html += f"""
+            <div style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+                <div style="display: flex; justify-content: space-between; font-weight: 700;">
+                    <span>📊 {ticker} ({pattern})</span>
+                    <span style="color: #2563eb;">Est Entry: ${entry:.2f}</span>
+                </div>
+            </div>
+            """
+
+    return f"""
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;">
+    <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 20px; border-radius: 8px; text-align: center; color: #ffffff;">
+        <span style="background: #38df88; color: #0f172a; font-size: 11px; font-weight: 800; padding: 3px 10px; border-radius: 9999px; text-transform: uppercase;">
+            📊 TRadar End-of-Day Digest
+        </span>
+        <h1 style="margin: 10px 0 0 0; font-size: 22px; font-weight: 800;">{total_count} Market Breakouts Today</h1>
+        <p style="margin: 4px 0 0 0; font-size: 13px; color: #94a3b8;">Featured: {tickers_str}</p>
+    </div>
+
+    {cards_html}
+
+    <div style="border-top: 1px solid #e2e8f0; padding-top: 14px; margin-top: 20px; text-align: center; font-size: 12px; color: #94a3b8;">
+        <a href="{manage_url}" style="color: #2563eb; font-weight: 600; text-decoration: underline;">Manage Preferences</a> 
+        &nbsp;|&nbsp; 
+        <a href="{unsubscribe_url}" style="color: #dc2626; font-weight: 600; text-decoration: underline;">Unsubscribe</a>
+    </div>
+</div>
+"""
+
 def simulate_send_alert(email_address, html_content, ticker="STOCK", secondary_email=None):
     """
     Simulates sending an email alert, or dispatches it via SMTP if configured.

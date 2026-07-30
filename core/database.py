@@ -179,11 +179,66 @@ def init_db():
                 ("exit_date", "TEXT"),
                 ("return_pct", "REAL"),
                 ("rsi_at_entry", "REAL"),
-                ("vol_mult_at_entry", "REAL")
+                ("vol_mult_at_entry", "REAL"),
+                ("trading_date", "TEXT"),
+                ("digest_status", "TEXT DEFAULT 'PENDING'")
             ]
             for col_name, col_type in alert_new_cols:
                 if col_name not in a_columns:
                     conn.execute(f"ALTER TABLE sent_alerts ADD COLUMN {col_name} {col_type};")
+
+            # Check digest tracking columns in growth_discoveries and heartbeat_discoveries
+            for tbl in ["growth_discoveries", "heartbeat_discoveries"]:
+                cursor_tbl = conn.execute(f"PRAGMA table_info({tbl});")
+                tbl_cols = [row["name"] for row in cursor_tbl.fetchall()]
+                if "trading_date" not in tbl_cols:
+                    conn.execute(f"ALTER TABLE {tbl} ADD COLUMN trading_date TEXT;")
+                if "digest_status" not in tbl_cols:
+                    conn.execute(f"ALTER TABLE {tbl} ADD COLUMN digest_status TEXT DEFAULT 'PENDING';")
+
+            # Create digest delivery and association tables
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS digest_deliveries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trading_date TEXT NOT NULL,
+                digest_type TEXT NOT NULL,
+                subscriber_id INTEGER NOT NULL,
+                subscriber_email TEXT NOT NULL,
+                status TEXT NOT NULL,
+                discovery_ids_json TEXT NOT NULL,
+                discoveries_count INTEGER NOT NULL,
+                first_attempt_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_attempt_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                delivered_at DATETIME,
+                attempt_count INTEGER DEFAULT 0,
+                last_error TEXT,
+                UNIQUE(trading_date, digest_type, subscriber_id)
+            );
+            """)
+
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS digest_delivery_attempts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                digest_delivery_id INTEGER NOT NULL REFERENCES digest_deliveries(id),
+                attempted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                status TEXT NOT NULL,
+                error_message TEXT,
+                provider_message_id TEXT
+            );
+            """)
+
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS digest_discovery_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                digest_delivery_id INTEGER NOT NULL REFERENCES digest_deliveries(id),
+                source_type TEXT NOT NULL,
+                source_id INTEGER NOT NULL,
+                ticker TEXT NOT NULL,
+                score REAL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(digest_delivery_id, source_type, source_id)
+            );
+            """)
 
             # Auto-backfill Heartbeat blueprints if stop_loss or profit_target is NULL
             conn.execute("""
@@ -200,6 +255,194 @@ def init_db():
 
     finally:
         conn.close()
+
+
+# ─── DIGEST SCHEDULER & DELIVERY STATE QUERY METHODS ───
+
+def is_digest_delivered(trading_date, digest_type, subscriber_id):
+    """
+    Returns True if a digest has already been successfully delivered for this trading_date, digest_type, and subscriber.
+    """
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT 1 FROM digest_deliveries
+            WHERE trading_date = ? AND digest_type = ? AND subscriber_id = ? AND status = 'SUCCESS'
+            """,
+            (trading_date, digest_type, subscriber_id)
+        ).fetchone()
+        return row is not None
+    except sqlite3.Error as e:
+        logging.error(f"Database error checking digest delivered: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_or_create_digest_delivery(trading_date, digest_type, subscriber_id, subscriber_email, discovery_ids_json, discoveries_count, status="PENDING"):
+    """
+    Creates or retrieves the digest_deliveries record for (trading_date, digest_type, subscriber_id).
+    Returns dict of the row.
+    """
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO digest_deliveries (trading_date, digest_type, subscriber_id, subscriber_email, discovery_ids_json, discoveries_count, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(trading_date, digest_type, subscriber_id) DO UPDATE SET
+                    subscriber_email = excluded.subscriber_email,
+                    discovery_ids_json = excluded.discovery_ids_json,
+                    discoveries_count = excluded.discoveries_count,
+                    last_attempt_at = CURRENT_TIMESTAMP
+                """,
+                (trading_date, digest_type, subscriber_id, subscriber_email, str(discovery_ids_json), discoveries_count, status)
+            )
+        row = conn.execute(
+            "SELECT * FROM digest_deliveries WHERE trading_date = ? AND digest_type = ? AND subscriber_id = ?",
+            (trading_date, digest_type, subscriber_id)
+        ).fetchone()
+        return dict(row) if row else None
+    except sqlite3.Error as e:
+        logging.error(f"Database error getting/creating digest delivery: {e}")
+        return None
+    finally:
+        conn.close()
+
+def record_digest_attempt(digest_delivery_id, status, error_message=None, provider_message_id=None):
+    """
+    Appends an audit log entry to digest_delivery_attempts and updates digest_deliveries status/error.
+    """
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO digest_delivery_attempts (digest_delivery_id, status, error_message, provider_message_id)
+                VALUES (?, ?, ?, ?)
+                """,
+                (digest_delivery_id, status, error_message, provider_message_id)
+            )
+            
+            if status == "SUCCESS":
+                conn.execute(
+                    """
+                    UPDATE digest_deliveries
+                    SET status = 'SUCCESS', delivered_at = CURRENT_TIMESTAMP, attempt_count = attempt_count + 1, last_error = NULL
+                    WHERE id = ?
+                    """,
+                    (digest_delivery_id,)
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE digest_deliveries
+                    SET status = ?, attempt_count = attempt_count + 1, last_error = ?
+                    WHERE id = ?
+                    """,
+                    (status, error_message, digest_delivery_id)
+                )
+        return True
+    except sqlite3.Error as e:
+        logging.error(f"Database error recording digest attempt: {e}")
+        return False
+    finally:
+        conn.close()
+
+def mark_digest_success(digest_delivery_id, discovery_items):
+    """
+    Marks delivery SUCCESS, logs associated items in digest_discovery_items,
+    and updates source discoveries to digest_status = 'DELIVERED'.
+    """
+    conn = get_db_connection()
+    try:
+        with conn:
+            record_digest_attempt(digest_delivery_id, "SUCCESS")
+            for item in discovery_items:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO digest_discovery_items (digest_delivery_id, source_type, source_id, ticker, score)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (digest_delivery_id, item["source_type"], item["source_id"], item["ticker"], item.get("score", 0.0))
+                )
+                
+                s_type = item["source_type"]
+                s_id = item["source_id"]
+                if s_type == "growth":
+                    conn.execute("UPDATE growth_discoveries SET digest_status = 'DELIVERED' WHERE id = ?", (s_id,))
+                elif s_type == "heartbeat":
+                    conn.execute("UPDATE heartbeat_discoveries SET digest_status = 'DELIVERED' WHERE id = ?", (s_id,))
+                elif s_type == "technical":
+                    conn.execute("UPDATE sent_alerts SET digest_status = 'DELIVERED' WHERE id = ?", (s_id,))
+        return True
+    except sqlite3.Error as e:
+        logging.error(f"Database error marking digest success: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_pending_discoveries_for_subscriber(subscriber_id, trading_date=None):
+    """
+    Retrieves pending growth, heartbeat, and technical reversal discoveries for a subscriber
+    that have NOT yet been included in a SUCCESS digest for this subscriber.
+    """
+    conn = get_db_connection()
+    try:
+        growth_rows = conn.execute(
+            """
+            SELECT g.id, g.ticker, g.growth_score as score, g.catalyst_type, g.headline_summary, g.initial_price, g.created_at, 'growth' as source_type
+            FROM growth_discoveries g
+            WHERE g.id NOT IN (
+                SELECT i.source_id 
+                FROM digest_discovery_items i
+                JOIN digest_deliveries d ON i.digest_delivery_id = d.id
+                WHERE d.subscriber_id = ? AND d.status = 'SUCCESS' AND i.source_type = 'growth'
+            )
+            """,
+            (subscriber_id,)
+        ).fetchall()
+        
+        heartbeat_rows = conn.execute(
+            """
+            SELECT h.id, h.ticker, h.conviction_score as score, h.catalyst_type, h.headline_summary, h.initial_price, h.created_at, 'heartbeat' as source_type
+            FROM heartbeat_discoveries h
+            WHERE h.id NOT IN (
+                SELECT i.source_id 
+                FROM digest_discovery_items i
+                JOIN digest_deliveries d ON i.digest_delivery_id = d.id
+                WHERE d.subscriber_id = ? AND d.status = 'SUCCESS' AND i.source_type = 'heartbeat'
+            )
+            """,
+            (subscriber_id,)
+        ).fetchall()
+        
+        tech_rows = conn.execute(
+            """
+            SELECT a.id, a.ticker, a.rsi_at_entry, a.vol_mult_at_entry, a.pattern_type, a.entry_price, a.stop_loss, a.profit_target, a.sent_at as created_at, 'technical' as source_type
+            FROM sent_alerts a
+            WHERE a.subscriber_id = ? AND a.id NOT IN (
+                SELECT i.source_id 
+                FROM digest_discovery_items i
+                JOIN digest_deliveries d ON i.digest_delivery_id = d.id
+                WHERE d.subscriber_id = ? AND d.status = 'SUCCESS' AND i.source_type = 'technical'
+            )
+            """,
+            (subscriber_id, subscriber_id)
+        ).fetchall()
+        
+        return {
+            "growth": [dict(r) for r in growth_rows],
+            "heartbeat": [dict(r) for r in heartbeat_rows],
+            "technical": [dict(r) for r in tech_rows]
+        }
+    except sqlite3.Error as e:
+        logging.error(f"Database error fetching pending discoveries: {e}")
+        return {"growth": [], "heartbeat": [], "technical": []}
+    finally:
+        conn.close()
+
 
 def create_subscriber(email, wants_buys=1, wants_risks=1, wants_sells=1, initial_tickers=None):
     """
