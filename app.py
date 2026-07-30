@@ -463,10 +463,12 @@ def render_landing_page():
                     placeholder="e.g. NVDA, AMD, PLTR"
                 )
                 
-                st.write("**Alert Preferences**")
+                st.write("**Alert Notification Preferences**")
                 wants_buys = st.checkbox("🟢 Buy Opportunities (Hammer Reversals)", value=True, key="reg_wants_buys")
-                wants_risks = st.checkbox("🟡 Risk Alerts (Medium Score Hanging Man)", value=True, key="reg_wants_risks")
-                wants_sells = st.checkbox("🔴 Sell Alerts (High Score Hanging Man)", value=True, key="reg_wants_sells")
+                wants_risks = st.checkbox("🟡 Medium Risk Alerts (Hanging Man Reversals)", value=True, key="reg_wants_risks")
+                wants_sells = st.checkbox("🔴 High Risk Sell Warnings (High-Volume Hanging Man)", value=True, key="reg_wants_sells")
+                wants_growth = st.checkbox("🚀 Growth & Contract Catalysts (High Volume + Groq AI Score ≥ 7/10)", value=True, key="reg_wants_growth")
+                wants_heartbeat = st.checkbox("💓 Heartbeat Volatility Expansion (Low-Volatility Squeeze + QRS Volume Pulse)", value=True, key="reg_wants_heartbeat")
                 
                 reg_submit = st.form_submit_button("Create Account & Send Code")
                 
@@ -486,6 +488,8 @@ def render_landing_page():
                                     wants_buys=1 if wants_buys else 0,
                                     wants_risks=1 if wants_risks else 0,
                                     wants_sells=1 if wants_sells else 0,
+                                    wants_growth=1 if wants_growth else 0,
+                                    wants_heartbeat=1 if wants_heartbeat else 0,
                                     initial_tickers=tickers
                                 )
                                 # Generate OTP
@@ -1722,152 +1726,163 @@ def render_management_dashboard(subscriber, token):
         hb_last_time = hb_log["timestamp"] if hb_log else "Never"
         hb_last_dur = f"{hb_log['duration_seconds']:.2f}s" if hb_log else "n/a"
 
-        # Section 1 Header
-        st.markdown('<h3 style="color: #f8fafc; font-weight: 800; margin-top: 0; margin-bottom: 8px;">⚡ TRadar 3-Engine Control Hub & Auto-Schedulers</h3>', unsafe_allow_html=True)
-        st.write("Manage your **Candlestick Technical Scanner**, **AI Growth Engine**, and **Heartbeat Volatility Scanner** below:")
+        is_admin = database.is_admin_subscriber(subscriber)
 
-        col_tech, col_growth, col_heartbeat = st.columns(3)
-        
-        # ------------------- COLUMN 1: TECHNICAL SCANNER -------------------
-        with col_tech:
-            st.markdown("""
-            <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px; min-height: 140px; box-sizing: border-box;">
-                <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.05rem;">📊 Technical Reversal Engine</h4>
-                <p style="color: #94a3b8; font-size: 0.82rem; line-height: 1.4; margin: 0;">
-                    Scans price charts & volume for confirmed 
-                    <strong style="color: #38df88;">Hammer Buy Reversals</strong> (RSI &lt; 50) and 
-                    <strong style="color: #f87171;">Hanging Man Risk Warnings</strong>.
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
+        if is_admin:
+            # Section 1 Header (Admin Only)
+            st.markdown('<h3 style="color: #f8fafc; font-weight: 800; margin-top: 0; margin-bottom: 8px;">⚙️ System Admin Control Hub & Auto-Schedulers</h3>', unsafe_allow_html=True)
+            st.write("Manage your **Candlestick Technical Scanner**, **AI Growth Engine**, and **Heartbeat Volatility Scanner** below:")
+
+            col_tech, col_growth, col_heartbeat = st.columns(3)
             
-            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-bottom: 6px;'>1. Run On-Demand:</p>", unsafe_allow_html=True)
-            if st.session_state.get("is_running_manual_tech"):
-                st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 📊 Scanning Watchlist Reversals...</div>', unsafe_allow_html=True)
-                time.sleep(0.15)
-                start_t = time.time()
-                daily_scanner.run_daily_scan(days_to_scan=3, trigger_type="manual")
-                dur = time.time() - start_t
-                st.session_state.is_running_manual_tech = False
-                st.session_state.pending_toast = f"Technical scan complete! Took {dur:.2f}s."
-                st.rerun()
-            else:
-                if st.button("▶️ Run Instant Technical Scan", type="primary", use_container_width=True, key="btn_tech_manual"):
-                    st.session_state.is_running_manual_tech = True
+            # ------------------- COLUMN 1: TECHNICAL SCANNER -------------------
+            with col_tech:
+                st.markdown("""
+                <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px; min-height: 140px; box-sizing: border-box;">
+                    <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.05rem;">📊 Technical Reversal Engine</h4>
+                    <p style="color: #94a3b8; font-size: 0.82rem; line-height: 1.4; margin: 0;">
+                        Scans price charts & volume for confirmed 
+                        <strong style="color: #38df88;">Hammer Buy Reversals</strong> (RSI &lt; 50) and 
+                        <strong style="color: #f87171;">Hanging Man Risk Warnings</strong>.
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-bottom: 6px;'>1. Run On-Demand:</p>", unsafe_allow_html=True)
+                if st.session_state.get("is_running_manual_tech"):
+                    st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 📊 Scanning Watchlist Reversals...</div>', unsafe_allow_html=True)
+                    time.sleep(0.15)
+                    start_t = time.time()
+                    daily_scanner.run_daily_scan(days_to_scan=3, trigger_type="manual")
+                    dur = time.time() - start_t
+                    st.session_state.is_running_manual_tech = False
+                    st.session_state.pending_toast = f"Technical scan complete! Took {dur:.2f}s."
+                    st.rerun()
+                else:
+                    if st.button("▶️ Run Instant Technical Scan", type="primary", use_container_width=True, key="btn_tech_manual"):
+                        st.session_state.is_running_manual_tech = True
+                        st.rerun()
+
+                st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Market Auto-Scheduler (9:00 AM & 4:30 PM EST):</p>", unsafe_allow_html=True)
+                toggle_label = "🛑 Stop Technical Auto-Scheduler" if is_sched_active else "⚡ Start Technical Auto-Scheduler"
+                btn_type = "secondary" if is_sched_active else "primary"
+                if st.button(toggle_label, type=btn_type, use_container_width=True, key="btn_tech_sched"):
+                    new_state = not is_sched_active
+                    database.set_scheduler_active(new_state)
+                    status_txt = "started" if new_state else "stopped"
+                    st.session_state.pending_toast = f"Technical Auto-Scheduler has been {status_txt}."
                     st.rerun()
 
-            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Market Auto-Scheduler (9:00 AM & 4:30 PM EST):</p>", unsafe_allow_html=True)
-            toggle_label = "🛑 Stop Technical Auto-Scheduler" if is_sched_active else "⚡ Start Technical Auto-Scheduler"
-            btn_type = "secondary" if is_sched_active else "primary"
-            if st.button(toggle_label, type=btn_type, use_container_width=True, key="btn_tech_sched"):
-                new_state = not is_sched_active
-                database.set_scheduler_active(new_state)
-                status_txt = "started" if new_state else "stopped"
-                st.session_state.pending_toast = f"Technical Auto-Scheduler has been {status_txt}."
-                st.rerun()
+                t_status_color = "#38df88" if is_sched_active else "#f87171"
+                t_status_label = f"🟢 Active ({uptime_str})" if is_sched_active else "🔴 Stopped"
+                st.markdown(f"""
+                <div style="background: #090d16; padding: 14px; border-radius: 8px; border: 1px solid #1e293b; margin-top: 14px;">
+                    <span style="color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase;">TECHNICAL SCHEDULER STATUS</span>
+                    <div style="color: {t_status_color}; font-size: 1.05rem; font-weight: 800; margin-top: 4px;">{t_status_label}</div>
+                    <div style="color: #cbd5e1; font-size: 0.8rem; margin-top: 6px;">Last Run: <strong style="color: #f8fafc;">{t_last_time}</strong> ({t_last_dur})</div>
+                </div>
+                """, unsafe_allow_html=True)
 
-            t_status_color = "#38df88" if is_sched_active else "#f87171"
-            t_status_label = f"🟢 Active ({uptime_str})" if is_sched_active else "🔴 Stopped"
-            st.markdown(f"""
-            <div style="background: #090d16; padding: 14px; border-radius: 8px; border: 1px solid #1e293b; margin-top: 14px;">
-                <span style="color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase;">TECHNICAL SCHEDULER STATUS</span>
-                <div style="color: {t_status_color}; font-size: 1.05rem; font-weight: 800; margin-top: 4px;">{t_status_label}</div>
-                <div style="color: #cbd5e1; font-size: 0.8rem; margin-top: 6px;">Last Run: <strong style="color: #f8fafc;">{t_last_time}</strong> ({t_last_dur})</div>
-            </div>
-            """, unsafe_allow_html=True)
+            # ------------------- COLUMN 2: GROWTH CATALYST SCANNER -------------------
+            with col_growth:
+                st.markdown("""
+                <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px; min-height: 140px; box-sizing: border-box;">
+                    <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.05rem;">🚀 Whole-Market AI Growth Engine</h4>
+                    <p style="color: #94a3b8; font-size: 0.82rem; line-height: 1.4; margin: 0;">
+                        Scans the <strong style="color: #38df88;">entire US stock market</strong> for high-volume contract & earnings catalysts 
+                        evaluated by <strong style="color: #60a5fa;">Groq AI</strong> (&ge; 7.0/10).
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
 
-        # ------------------- COLUMN 2: GROWTH CATALYST SCANNER -------------------
-        with col_growth:
+                st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-bottom: 6px;'>1. Run On-Demand:</p>", unsafe_allow_html=True)
+                if st.session_state.get("is_running_manual_growth"):
+                    st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 🚀 Scanning Whole-Market Catalysts...</div>', unsafe_allow_html=True)
+                    time.sleep(0.15)
+                    start_t = time.time()
+                    growth_scanner.run_growth_scan(trigger_type="manual_ui")
+                    dur = time.time() - start_t
+                    st.session_state.is_running_manual_growth = False
+                    st.session_state.pending_toast = f"Growth catalyst scan complete! Took {dur:.2f}s."
+                    st.rerun()
+                else:
+                    if st.button("🚀 Run Instant Market Growth Scan", type="primary", use_container_width=True, key="btn_growth_manual"):
+                        st.session_state.is_running_manual_growth = True
+                        st.rerun()
+
+                st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Market Auto-Scheduler (9:00 AM & 4:30 PM EST):</p>", unsafe_allow_html=True)
+
+                g_toggle_label = "🛑 Stop Growth Auto-Scheduler" if is_growth_active else "🚀 Start Growth Auto-Scheduler"
+                g_btn_type = "secondary" if is_growth_active else "primary"
+                if st.button(g_toggle_label, type=g_btn_type, use_container_width=True, key="btn_growth_sched"):
+                    g_new_state = not is_growth_active
+                    database.set_growth_scheduler_active(g_new_state)
+                    g_status_txt = "started" if g_new_state else "stopped"
+                    st.session_state.pending_toast = f"Growth Auto-Scheduler has been {g_status_txt}."
+                    st.rerun()
+
+                g_status_color = "#38df88" if is_growth_active else "#f87171"
+                g_status_label = f"🟢 Active ({g_uptime_str})" if is_growth_active else "🔴 Stopped"
+                st.markdown(f"""
+                <div style="background: #090d16; padding: 14px; border-radius: 8px; border: 1px solid #1e293b; margin-top: 14px;">
+                    <span style="color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase;">GROWTH SCHEDULER STATUS</span>
+                    <div style="color: {g_status_color}; font-size: 1.05rem; font-weight: 800; margin-top: 4px;">{g_status_label}</div>
+                    <div style="color: #cbd5e1; font-size: 0.8rem; margin-top: 6px;">Last Run: <strong style="color: #f8fafc;">{g_last_time}</strong> ({g_last_dur})</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # ------------------- COLUMN 3: HEARTBEAT VOLATILITY SCANNER -------------------
+            with col_heartbeat:
+                st.markdown("""
+                <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px; min-height: 140px; box-sizing: border-box;">
+                    <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.05rem;">💓 Heartbeat Volatility Expansion Engine</h4>
+                    <p style="color: #94a3b8; font-size: 0.82rem; line-height: 1.4; margin: 0;">
+                        Detects <strong style="color: #f472b6;">Sleeping Giants</strong> breaking out of tight squeezes (&lt; 12% Band) with a sudden <strong style="color: #ff007f;">QRS Volume Pulse</strong> (&ge; 3.0x).
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+
+                st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-bottom: 6px;'>1. Run On-Demand:</p>", unsafe_allow_html=True)
+                if st.session_state.get("is_running_manual_hb"):
+                    st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 💓 Scanning Heartbeat Squeezes...</div>', unsafe_allow_html=True)
+                    time.sleep(0.15)
+                    start_t = time.time()
+                    heartbeat_scanner.run_heartbeat_scan(trigger_type="manual_ui")
+                    dur = time.time() - start_t
+                    st.session_state.is_running_manual_hb = False
+                    st.session_state.pending_toast = f"Heartbeat scan complete! Took {dur:.2f}s."
+                    st.rerun()
+                else:
+                    if st.button("💓 Run Instant Heartbeat Scan", type="primary", use_container_width=True, key="btn_hb_manual"):
+                        st.session_state.is_running_manual_hb = True
+                        st.rerun()
+
+                st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Market Auto-Scheduler (9:00 AM & 4:30 PM EST):</p>", unsafe_allow_html=True)
+
+                hb_toggle_label = "🛑 Stop Heartbeat Auto-Scheduler" if is_hb_active else "💓 Start Heartbeat Auto-Scheduler"
+                hb_btn_type = "secondary" if is_hb_active else "primary"
+                if st.button(hb_toggle_label, type=hb_btn_type, use_container_width=True, key="btn_hb_sched"):
+                    hb_new_state = not is_hb_active
+                    database.set_heartbeat_scheduler_active(hb_new_state)
+                    hb_status_txt = "started" if hb_new_state else "stopped"
+                    st.session_state.pending_toast = f"Heartbeat Auto-Scheduler has been {hb_status_txt}."
+                    st.rerun()
+
+                hb_status_color = "#38df88" if is_hb_active else "#f87171"
+                hb_status_label = f"🟢 Active ({hb_uptime_str})" if is_hb_active else "🔴 Stopped"
+                st.markdown(f"""
+                <div style="background: #090d16; padding: 14px; border-radius: 8px; border: 1px solid #1e293b; margin-top: 14px;">
+                    <span style="color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase;">HEARTBEAT SCHEDULER STATUS</span>
+                    <div style="color: {hb_status_color}; font-size: 1.05rem; font-weight: 800; margin-top: 4px;">{hb_status_label}</div>
+                    <div style="color: #cbd5e1; font-size: 0.8rem; margin-top: 6px;">Last Run: <strong style="color: #f8fafc;">{hb_last_time}</strong> ({hb_last_dur})</div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            # Non-interactive status banner for regular subscribers
             st.markdown("""
-            <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px; min-height: 140px; box-sizing: border-box;">
-                <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.05rem;">🚀 Whole-Market AI Growth Engine</h4>
-                <p style="color: #94a3b8; font-size: 0.82rem; line-height: 1.4; margin: 0;">
-                    Scans the <strong style="color: #38df88;">entire US stock market</strong> for high-volume contract & earnings catalysts 
-                    evaluated by <strong style="color: #60a5fa;">Groq AI</strong> (&ge; 7.0/10).
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-bottom: 6px;'>1. Run On-Demand:</p>", unsafe_allow_html=True)
-            if st.session_state.get("is_running_manual_growth"):
-                st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 🚀 Scanning Whole-Market Catalysts...</div>', unsafe_allow_html=True)
-                time.sleep(0.15)
-                start_t = time.time()
-                growth_scanner.run_growth_scan(trigger_type="manual_ui")
-                dur = time.time() - start_t
-                st.session_state.is_running_manual_growth = False
-                st.session_state.pending_toast = f"Growth catalyst scan complete! Took {dur:.2f}s."
-                st.rerun()
-            else:
-                if st.button("🚀 Run Instant Market Growth Scan", type="primary", use_container_width=True, key="btn_growth_manual"):
-                    st.session_state.is_running_manual_growth = True
-                    st.rerun()
-
-            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Market Auto-Scheduler (9:00 AM & 4:30 PM EST):</p>", unsafe_allow_html=True)
-
-            g_toggle_label = "🛑 Stop Growth Auto-Scheduler" if is_growth_active else "🚀 Start Growth Auto-Scheduler"
-            g_btn_type = "secondary" if is_growth_active else "primary"
-            if st.button(g_toggle_label, type=g_btn_type, use_container_width=True, key="btn_growth_sched"):
-                g_new_state = not is_growth_active
-                database.set_growth_scheduler_active(g_new_state)
-                g_status_txt = "started" if g_new_state else "stopped"
-                st.session_state.pending_toast = f"Growth Auto-Scheduler has been {g_status_txt}."
-                st.rerun()
-
-            g_status_color = "#38df88" if is_growth_active else "#f87171"
-            g_status_label = f"🟢 Active ({g_uptime_str})" if is_growth_active else "🔴 Stopped"
-            st.markdown(f"""
-            <div style="background: #090d16; padding: 14px; border-radius: 8px; border: 1px solid #1e293b; margin-top: 14px;">
-                <span style="color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase;">GROWTH SCHEDULER STATUS</span>
-                <div style="color: {g_status_color}; font-size: 1.05rem; font-weight: 800; margin-top: 4px;">{g_status_label}</div>
-                <div style="color: #cbd5e1; font-size: 0.8rem; margin-top: 6px;">Last Run: <strong style="color: #f8fafc;">{g_last_time}</strong> ({g_last_dur})</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        # ------------------- COLUMN 3: HEARTBEAT VOLATILITY SCANNER -------------------
-        with col_heartbeat:
-            st.markdown("""
-            <div style="background: #0f172a; padding: 18px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 15px; min-height: 140px; box-sizing: border-box;">
-                <h4 style="margin-top: 0; margin-bottom: 6px; color: #f8fafc; font-size: 1.05rem;">💓 Heartbeat Volatility Expansion Engine</h4>
-                <p style="color: #94a3b8; font-size: 0.82rem; line-height: 1.4; margin: 0;">
-                    Detects <strong style="color: #f472b6;">Sleeping Giants</strong> breaking out of tight squeezes (&lt; 12% Band) with a sudden <strong style="color: #ff007f;">QRS Volume Pulse</strong> (&ge; 3.0x).
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-bottom: 6px;'>1. Run On-Demand:</p>", unsafe_allow_html=True)
-            if st.session_state.get("is_running_manual_hb"):
-                st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 💓 Scanning Heartbeat Squeezes...</div>', unsafe_allow_html=True)
-                time.sleep(0.15)
-                start_t = time.time()
-                heartbeat_scanner.run_heartbeat_scan(trigger_type="manual_ui")
-                dur = time.time() - start_t
-                st.session_state.is_running_manual_hb = False
-                st.session_state.pending_toast = f"Heartbeat scan complete! Took {dur:.2f}s."
-                st.rerun()
-            else:
-                if st.button("💓 Run Instant Heartbeat Scan", type="primary", use_container_width=True, key="btn_hb_manual"):
-                    st.session_state.is_running_manual_hb = True
-                    st.rerun()
-
-            st.markdown("<p style='font-weight: 700; color: #f8fafc; margin-top: 14px; margin-bottom: 6px;'>2. Market Auto-Scheduler (9:00 AM & 4:30 PM EST):</p>", unsafe_allow_html=True)
-
-            hb_toggle_label = "🛑 Stop Heartbeat Auto-Scheduler" if is_hb_active else "💓 Start Heartbeat Auto-Scheduler"
-            hb_btn_type = "secondary" if is_hb_active else "primary"
-            if st.button(hb_toggle_label, type=hb_btn_type, use_container_width=True, key="btn_hb_sched"):
-                hb_new_state = not is_hb_active
-                database.set_heartbeat_scheduler_active(hb_new_state)
-                hb_status_txt = "started" if hb_new_state else "stopped"
-                st.session_state.pending_toast = f"Heartbeat Auto-Scheduler has been {hb_status_txt}."
-                st.rerun()
-
-            hb_status_color = "#38df88" if is_hb_active else "#f87171"
-            hb_status_label = f"🟢 Active ({hb_uptime_str})" if is_hb_active else "🔴 Stopped"
-            st.markdown(f"""
-            <div style="background: #090d16; padding: 14px; border-radius: 8px; border: 1px solid #1e293b; margin-top: 14px;">
-                <span style="color: #94a3b8; font-size: 10px; font-weight: 700; text-transform: uppercase;">HEARTBEAT SCHEDULER STATUS</span>
-                <div style="color: {hb_status_color}; font-size: 1.05rem; font-weight: 800; margin-top: 4px;">{hb_status_label}</div>
-                <div style="color: #cbd5e1; font-size: 0.8rem; margin-top: 6px;">Last Run: <strong style="color: #f8fafc;">{hb_last_time}</strong> ({hb_last_dur})</div>
+            <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 18px 24px; border-radius: 12px; border: 1px solid #334155; margin-bottom: 24px;">
+                <span style="color: #38df88; font-weight: 800; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.05em;">🟢 TRadar Market Engines: Active & Monitoring</span>
+                <p style="color: #94a3b8; font-size: 0.85rem; margin: 4px 0 0 0;">Automated 15-minute market scans are active. Your personalized evening digest dispatches at 4:30 PM EST.</p>
             </div>
             """, unsafe_allow_html=True)
 
@@ -2223,334 +2238,335 @@ def render_management_dashboard(subscriber, token):
                 })
                 st.dataframe(log_df[["Timestamp", "Trigger Type", "Duration", "Tickers", "Setups Found", "Alerts Sent"]], use_container_width=True)
 
-        with st.expander("📧 Email Delivery Tester & Layout Inspector", expanded=False):
-            st.write("Send a test alert email to your address or inspect how different AI models format email notifications:")
-            
-            model_options = [
-                "⚡ Auto (Default Fallback Chain)",
-                "🔥 Groq 70B (llama-3.3-70b-versatile)",
-                "⚡ Groq 8B (llama-3.1-8b-instant)",
-                "✨ Gemma 4 (gemma-4-26b-a4b-it)",
-                "🚀 Gemini Flash (gemini-2.0-flash)"
-            ]
-            selected_model_label = st.selectbox(
-                "🤖 Select AI Model Provider for Test Email:",
-                model_options,
-                key="test_email_model_selectbox"
-            )
-            
-            forced_model_map = {
-                "🔥 Groq 70B (llama-3.3-70b-versatile)": "Groq-70B",
-                "⚡ Groq 8B (llama-3.1-8b-instant)": "Groq-8B",
-                "✨ Gemma 4 (gemma-4-26b-a4b-it)": "Gemma-4",
-                "🚀 Gemini Flash (gemini-2.0-flash)": "Gemini-Flash"
-            }
-            forced_model_arg = forced_model_map.get(selected_model_label)
+        if is_admin:
+            with st.expander("📧 Email Delivery Tester & Layout Inspector", expanded=False):
+                st.write("Send a test alert email to your address or inspect how different AI models format email notifications:")
+                
+                model_options = [
+                    "⚡ Auto (Default Fallback Chain)",
+                    "🔥 Groq 70B (llama-3.3-70b-versatile)",
+                    "⚡ Groq 8B (llama-3.1-8b-instant)",
+                    "✨ Gemma 4 (gemma-4-26b-a4b-it)",
+                    "🚀 Gemini Flash (gemini-2.0-flash)"
+                ]
+                selected_model_label = st.selectbox(
+                    "🤖 Select AI Model Provider for Test Email:",
+                    model_options,
+                    key="test_email_model_selectbox"
+                )
+                
+                forced_model_map = {
+                    "🔥 Groq 70B (llama-3.3-70b-versatile)": "Groq-70B",
+                    "⚡ Groq 8B (llama-3.1-8b-instant)": "Groq-8B",
+                    "✨ Gemma 4 (gemma-4-26b-a4b-it)": "Gemma-4",
+                    "🚀 Gemini Flash (gemini-2.0-flash)": "Gemini-Flash"
+                }
+                forced_model_arg = forced_model_map.get(selected_model_label)
 
-            c_test1, c_test2, c_test3, c_test4, c_test5 = st.columns(5)
-            
-            # --- Column 1: Single Technical Alert Test ---
-            with c_test1:
-                if st.session_state.get("is_testing_tech"):
-                    st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} ⚡ Generating Single Alert...</div>', unsafe_allow_html=True)
-                    mock_ticker = watchlist[0] if watchlist else "NVDA"
-                    try:
-                        hist = yf.Ticker(mock_ticker).history(period="1mo")
-                        if not hist.empty:
-                            cur_price = float(hist['Close'].iloc[-1])
-                            day1_l = round(cur_price * 0.96, 2)
-                            day1_h = round(cur_price * 1.01, 2)
-                            day1_c = round(cur_price * 0.97, 2)
-                            day2_c = round(cur_price, 2)
-                        else:
+                c_test1, c_test2, c_test3, c_test4, c_test5 = st.columns(5)
+                
+                # --- Column 1: Single Technical Alert Test ---
+                with c_test1:
+                    if st.session_state.get("is_testing_tech"):
+                        st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} ⚡ Generating Single Alert...</div>', unsafe_allow_html=True)
+                        mock_ticker = watchlist[0] if watchlist else "NVDA"
+                        try:
+                            hist = yf.Ticker(mock_ticker).history(period="1mo")
+                            if not hist.empty:
+                                cur_price = float(hist['Close'].iloc[-1])
+                                day1_l = round(cur_price * 0.96, 2)
+                                day1_h = round(cur_price * 1.01, 2)
+                                day1_c = round(cur_price * 0.97, 2)
+                                day2_c = round(cur_price, 2)
+                            else:
+                                cur_price, day1_l, day1_h, day1_c, day2_c = 125.0, 115.0, 126.0, 120.0, 125.0
+                        except Exception:
                             cur_price, day1_l, day1_h, day1_c, day2_c = 125.0, 115.0, 126.0, 120.0, 125.0
-                    except Exception:
-                        cur_price, day1_l, day1_h, day1_c, day2_c = 125.0, 115.0, 126.0, 120.0, 125.0
 
-                    mock_signal = {
-                        "ticker": mock_ticker,
-                        "pattern_type": "Hammer",
-                        "confidence_score": 88.5,
-                        "rsi_14": 28.2,
-                        "vol_mult": 1.95,
-                        "day1_date": (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d"),
-                        "day1_close": day1_c,
-                        "day1_low": day1_l,
-                        "day1_high": day1_h,
-                        "day2_date": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"),
-                        "day2_close": day2_c
-                    }
-                    ai_analysis = analyst_engine.analyze_signal(mock_signal, forced_model=forced_model_arg)
-                    if ai_analysis:
-                        mock_signal["ai_analysis"] = ai_analysis
-                    
-                    email_html = notifier.format_alert_email(mock_signal, token)
-                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], email_html, mock_ticker, secondary_email=subscriber.get("secondary_email"))
-                    model_tag = (ai_analysis.get("ai_model_used") if ai_analysis else None) or "AI"
-
-                    st.session_state.is_testing_tech = False
-                    st.session_state.test_tech_result = (real_sent, mock_ticker, day2_c, model_tag, status_msg, email_html)
-                    st.rerun()
-
-                else:
-                    if st.button("📧 Single Alert", use_container_width=True, key="btn_test_tech_email"):
-                        st.session_state.is_testing_tech = True
-                        st.rerun()
-
-                    if "test_tech_result" in st.session_state:
-                        real_sent, mock_ticker, day2_c, model_tag, status_msg, email_html = st.session_state.pop("test_tech_result")
-                        if real_sent:
-                            st.success(f"✅ Technical Alert Sent for {mock_ticker} (${day2_c}) via {model_tag}: {status_msg}")
-                        else:
-                            st.info(f"ℹ️ [{model_tag}] {status_msg}")
-                        st.session_state.inspect_html = (f"Single Technical Reversal Alert ({model_tag})", email_html)
-
-            # --- Column 2: Multi-Stock Watchlist Technical Digest Test ---
-            with c_test2:
-                if st.session_state.get("is_testing_tech_digest"):
-                    st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 🔨 Assembling Digest...</div>', unsafe_allow_html=True)
-                    mock_tech_signals = [
-                        {
-                            "ticker": "NVDA",
+                        mock_signal = {
+                            "ticker": mock_ticker,
                             "pattern_type": "Hammer",
                             "confidence_score": 88.5,
                             "rsi_14": 28.2,
                             "vol_mult": 1.95,
-                            "day2_close": 125.40,
-                            "ai_analysis": {
-                                "headline_summary": "NVIDIA forms classic oversold Hammer buy reversal at $125.40 support level with high institutional buying volume.",
-                                "key_catalysts": ["Confirmed Hammer candlestick on 1.95x avg volume", "RSI deeply oversold at 28.2", "Bounced off 50-day moving average"],
-                                "risks": ["Broader semiconductor sector volatility", "Upcoming CPI inflation print"],
-                                "plain_english_takeaway": "High-probability bullish reversal setup for NVDA entering near key technical support."
-                            }
-                        },
-                        {
-                            "ticker": "AMD",
-                            "pattern_type": "Hammer",
-                            "confidence_score": 82.0,
-                            "rsi_14": 33.5,
-                            "vol_mult": 1.70,
-                            "day2_close": 145.20,
-                            "ai_analysis": {
-                                "headline_summary": "AMD completes Hammer reversal following 4-day tech pullback.",
-                                "key_catalysts": ["Hammer candlestick pattern", "RSI oversold rebound", "Strong closing candle wick"],
-                                "risks": ["Overall market sentiment"],
-                                "plain_english_takeaway": "Solid technical recovery sign for AMD at major trendline support."
-                            }
-                        },
-                        {
-                            "ticker": "TSLA",
-                            "pattern_type": "Hanging Man",
-                            "confidence_score": 76.5,
-                            "rsi_14": 68.9,
-                            "vol_mult": 2.10,
-                            "day2_close": 248.50,
-                            "ai_analysis": {
-                                "headline_summary": "Tesla exhibits Hanging Man risk warning near multi-week resistance.",
-                                "key_catalysts": ["Hanging Man candle near overhead resistance", "RSI elevated at 68.9", "Heavy profit-taking tail"],
-                                "risks": ["Potential pullback to $235 support zone"],
-                                "plain_english_takeaway": "Exercise caution or tighten stop-losses on TSLA short-term long positions."
-                            }
+                            "day1_date": (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d"),
+                            "day1_close": day1_c,
+                            "day1_low": day1_l,
+                            "day1_high": day1_h,
+                            "day2_date": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"),
+                            "day2_close": day2_c
                         }
-                    ]
-                    
-                    tech_digest_html = notifier.format_technical_digest_email(mock_tech_signals, token)
-                    top_tickers_label = ", ".join(s["ticker"] for s in mock_tech_signals)
-                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], tech_digest_html, f"Watchlist Technical Digest ({top_tickers_label})", secondary_email=subscriber.get("secondary_email"))
-                    
-                    st.session_state.is_testing_tech_digest = False
-                    st.session_state.test_tech_digest_result = (real_sent, top_tickers_label, status_msg, tech_digest_html)
-                    st.rerun()
+                        ai_analysis = analyst_engine.analyze_signal(mock_signal, forced_model=forced_model_arg)
+                        if ai_analysis:
+                            mock_signal["ai_analysis"] = ai_analysis
+                        
+                        email_html = notifier.format_alert_email(mock_signal, token)
+                        real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], email_html, mock_ticker, secondary_email=subscriber.get("secondary_email"))
+                        model_tag = (ai_analysis.get("ai_model_used") if ai_analysis else None) or "AI"
 
-                else:
-                    if st.button("🔨 Technical Digest", use_container_width=True, key="btn_test_tech_digest"):
-                        st.session_state.is_testing_tech_digest = True
+                        st.session_state.is_testing_tech = False
+                        st.session_state.test_tech_result = (real_sent, mock_ticker, day2_c, model_tag, status_msg, email_html)
                         st.rerun()
 
-                    if "test_tech_digest_result" in st.session_state:
-                        real_sent, top_tickers_label, status_msg, tech_digest_html = st.session_state.pop("test_tech_digest_result")
-                        if real_sent:
-                            st.success(f"✅ Watchlist Technical Digest Sent ({top_tickers_label}): {status_msg}")
-                        else:
-                            st.info(f"ℹ️ {status_msg}")
-                        st.session_state.inspect_html = (f"Watchlist Technical Digest ({top_tickers_label})", tech_digest_html)
+                    else:
+                        if st.button("📧 Single Alert", use_container_width=True, key="btn_test_tech_email"):
+                            st.session_state.is_testing_tech = True
+                            st.rerun()
 
-            # --- Column 3: Growth Catalyst Digest Test ---
-            with c_test3:
-                if st.session_state.get("is_testing_growth"):
-                    st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 🚀 Assembling Growth Digest...</div>', unsafe_allow_html=True)
-                    mock_top_3 = [
-                        {
+                        if "test_tech_result" in st.session_state:
+                            real_sent, mock_ticker, day2_c, model_tag, status_msg, email_html = st.session_state.pop("test_tech_result")
+                            if real_sent:
+                                st.success(f"✅ Technical Alert Sent for {mock_ticker} (${day2_c}) via {model_tag}: {status_msg}")
+                            else:
+                                st.info(f"ℹ️ [{model_tag}] {status_msg}")
+                            st.session_state.inspect_html = (f"Single Technical Reversal Alert ({model_tag})", email_html)
+
+                # --- Column 2: Multi-Stock Watchlist Technical Digest Test ---
+                with c_test2:
+                    if st.session_state.get("is_testing_tech_digest"):
+                        st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 🔨 Assembling Digest...</div>', unsafe_allow_html=True)
+                        mock_tech_signals = [
+                            {
+                                "ticker": "NVDA",
+                                "pattern_type": "Hammer",
+                                "confidence_score": 88.5,
+                                "rsi_14": 28.2,
+                                "vol_mult": 1.95,
+                                "day2_close": 125.40,
+                                "ai_analysis": {
+                                    "headline_summary": "NVIDIA forms classic oversold Hammer buy reversal at $125.40 support level with high institutional buying volume.",
+                                    "key_catalysts": ["Confirmed Hammer candlestick on 1.95x avg volume", "RSI deeply oversold at 28.2", "Bounced off 50-day moving average"],
+                                    "risks": ["Broader semiconductor sector volatility", "Upcoming CPI inflation print"],
+                                    "plain_english_takeaway": "High-probability bullish reversal setup for NVDA entering near key technical support."
+                                }
+                            },
+                            {
+                                "ticker": "AMD",
+                                "pattern_type": "Hammer",
+                                "confidence_score": 82.0,
+                                "rsi_14": 33.5,
+                                "vol_mult": 1.70,
+                                "day2_close": 145.20,
+                                "ai_analysis": {
+                                    "headline_summary": "AMD completes Hammer reversal following 4-day tech pullback.",
+                                    "key_catalysts": ["Hammer candlestick pattern", "RSI oversold rebound", "Strong closing candle wick"],
+                                    "risks": ["Overall market sentiment"],
+                                    "plain_english_takeaway": "Solid technical recovery sign for AMD at major trendline support."
+                                }
+                            },
+                            {
+                                "ticker": "TSLA",
+                                "pattern_type": "Hanging Man",
+                                "confidence_score": 76.5,
+                                "rsi_14": 68.9,
+                                "vol_mult": 2.10,
+                                "day2_close": 248.50,
+                                "ai_analysis": {
+                                    "headline_summary": "Tesla exhibits Hanging Man risk warning near multi-week resistance.",
+                                    "key_catalysts": ["Hanging Man candle near overhead resistance", "RSI elevated at 68.9", "Heavy profit-taking tail"],
+                                    "risks": ["Potential pullback to $235 support zone"],
+                                    "plain_english_takeaway": "Exercise caution or tighten stop-losses on TSLA short-term long positions."
+                                }
+                            }
+                        ]
+                        
+                        tech_digest_html = notifier.format_technical_digest_email(mock_tech_signals, token)
+                        top_tickers_label = ", ".join(s["ticker"] for s in mock_tech_signals)
+                        real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], tech_digest_html, f"Watchlist Technical Digest ({top_tickers_label})", secondary_email=subscriber.get("secondary_email"))
+                        
+                        st.session_state.is_testing_tech_digest = False
+                        st.session_state.test_tech_digest_result = (real_sent, top_tickers_label, status_msg, tech_digest_html)
+                        st.rerun()
+
+                    else:
+                        if st.button("🔨 Technical Digest", use_container_width=True, key="btn_test_tech_digest"):
+                            st.session_state.is_testing_tech_digest = True
+                            st.rerun()
+
+                        if "test_tech_digest_result" in st.session_state:
+                            real_sent, top_tickers_label, status_msg, tech_digest_html = st.session_state.pop("test_tech_digest_result")
+                            if real_sent:
+                                st.success(f"✅ Watchlist Technical Digest Sent ({top_tickers_label}): {status_msg}")
+                            else:
+                                st.info(f"ℹ️ {status_msg}")
+                            st.session_state.inspect_html = (f"Watchlist Technical Digest ({top_tickers_label})", tech_digest_html)
+
+                # --- Column 3: Growth Catalyst Digest Test ---
+                with c_test3:
+                    if st.session_state.get("is_testing_growth"):
+                        st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 🚀 Assembling Growth Digest...</div>', unsafe_allow_html=True)
+                        mock_top_3 = [
+                            {
+                                "ticker": "RKLB",
+                                "growth_score": 8.5,
+                                "catalyst_type": "Contract Win",
+                                "headline_summary": "Rocket Lab awarded $515M Prime Defense Satellite constellation contract.",
+                                "key_catalysts": ["$515M defense satellite award", "Backlog expansion"],
+                                "risks": ["Government funding timing"],
+                                "plain_english_takeaway": "Major defense contract win expanding high-margin space systems.",
+                                "vol_mult": 2.85,
+                                "latest_price": 5.40,
+                                "news_articles": [
+                                    {"title": "Rocket Lab Secures $515M SDA Defense Satellite Award", "link": "https://news.google.com", "pubDate": "Tue, 22 Jul 2026 10:00:00 GMT"}
+                                ]
+                            },
+                            {
+                                "ticker": "SOFI",
+                                "growth_score": 7.8,
+                                "catalyst_type": "Strategic Agreement",
+                                "headline_summary": "SoFi inks $2B loan platform agreement with Fortress Investment Group.",
+                                "key_catalysts": ["$2B institutional capital commitment", "Fee revenue growth"],
+                                "risks": ["Interest rate fluctuations"],
+                                "plain_english_takeaway": "Expands high-margin loan origination fee revenue.",
+                                "vol_mult": 2.10,
+                                "latest_price": 7.10,
+                                "news_articles": [
+                                    {"title": "SoFi Inks $2B Loan Platform Deal With Fortress", "link": "https://news.google.com", "pubDate": "Mon, 21 Jul 2026 08:30:00 GMT"}
+                                ]
+                            }
+                        ]
+
+                        growth_html = notifier.format_growth_digest_email(mock_top_3, token)
+                        top_tickers_label = ", ".join(x["ticker"] for x in mock_top_3)
+                        real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], growth_html, f"Market Growth Digest ({top_tickers_label})", secondary_email=subscriber.get("secondary_email"))
+
+                        st.session_state.is_testing_growth = False
+                        st.session_state.test_growth_result = (real_sent, top_tickers_label, "Groq AI", status_msg, growth_html)
+                        st.rerun()
+
+                    else:
+                        if st.button("🚀 Growth Digest", use_container_width=True, key="btn_test_growth_email"):
+                            st.session_state.is_testing_growth = True
+                            st.rerun()
+
+                        if "test_growth_result" in st.session_state:
+                            real_sent, top_tickers_label, g_model_tag, status_msg, growth_html = st.session_state.pop("test_growth_result")
+                            if real_sent:
+                                st.success(f"✅ Growth Catalyst Digest Email Sent ({top_tickers_label}) via {g_model_tag}: {status_msg}")
+                            else:
+                                st.info(f"ℹ️ [{g_model_tag}] {status_msg}")
+                            st.session_state.inspect_html = (f"Growth Catalyst Digest ({top_tickers_label})", growth_html)
+
+                # --- Column 4: Cross-Engine Synergy Alert Test ---
+                with c_test4:
+                    if st.session_state.get("is_testing_synergy"):
+                        st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} ⚡ Generating Synergy Alert...</div>', unsafe_allow_html=True)
+                        mock_sig = {
                             "ticker": "RKLB",
+                            "pattern_type": "Hammer",
+                            "confidence_score": 91.5,
+                            "rsi_14": 31.8,
+                            "vol_mult": 2.15,
+                            "day2_close": 5.10,
+                            "entry_price": 5.10,
+                            "stop_loss": 4.85,
+                            "profit_target": 5.60,
+                            "ai_analysis": {
+                                "headline_summary": "Rocket Lab forms high-conviction Hammer buy reversal at $5.10 support following post-contract pullback.",
+                                "key_catalysts": ["Confirmed Hammer candlestick on 2.15x avg volume", "RSI oversold rebound at 31.8", "Support bounce at $5.10"],
+                                "risks": ["Broader defense sector volatility", "Space launch scheduling timing"],
+                                "plain_english_takeaway": "High-conviction cross-engine synergy setup for RKLB combining fundamental AI growth spark with technical Hammer entry."
+                            }
+                        }
+                        mock_disc = {
+                            "ticker": "RKLB",
+                            "discovery_date": (datetime.now() - timedelta(days=4)).strftime("%Y-%m-%d"),
+                            "initial_price": 5.40,
                             "growth_score": 8.5,
                             "catalyst_type": "Contract Win",
-                            "headline_summary": "Rocket Lab awarded $515M Prime Defense Satellite constellation contract.",
-                            "key_catalysts": ["$515M defense satellite award", "Backlog expansion"],
-                            "risks": ["Government funding timing"],
-                            "plain_english_takeaway": "Major defense contract win expanding high-margin space systems.",
-                            "vol_mult": 2.85,
-                            "latest_price": 5.40,
-                            "news_articles": [
-                                {"title": "Rocket Lab Secures $515M SDA Defense Satellite Award", "link": "https://news.google.com", "pubDate": "Tue, 22 Jul 2026 10:00:00 GMT"}
-                            ]
-                        },
-                        {
-                            "ticker": "SOFI",
-                            "growth_score": 7.8,
-                            "catalyst_type": "Strategic Agreement",
-                            "headline_summary": "SoFi inks $2B loan platform agreement with Fortress Investment Group.",
-                            "key_catalysts": ["$2B institutional capital commitment", "Fee revenue growth"],
-                            "risks": ["Interest rate fluctuations"],
-                            "plain_english_takeaway": "Expands high-margin loan origination fee revenue.",
-                            "vol_mult": 2.10,
-                            "latest_price": 7.10,
-                            "news_articles": [
-                                {"title": "SoFi Inks $2B Loan Platform Deal With Fortress", "link": "https://news.google.com", "pubDate": "Mon, 21 Jul 2026 08:30:00 GMT"}
-                            ]
+                            "headline_summary": "Rocket Lab awarded $515M Prime Defense Satellite constellation contract."
                         }
-                    ]
-
-                    growth_html = notifier.format_growth_digest_email(mock_top_3, token)
-                    top_tickers_label = ", ".join(x["ticker"] for x in mock_top_3)
-                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], growth_html, f"Market Growth Digest ({top_tickers_label})", secondary_email=subscriber.get("secondary_email"))
-
-                    st.session_state.is_testing_growth = False
-                    st.session_state.test_growth_result = (real_sent, top_tickers_label, "Groq AI", status_msg, growth_html)
-                    st.rerun()
-
-                else:
-                    if st.button("🚀 Growth Digest", use_container_width=True, key="btn_test_growth_email"):
-                        st.session_state.is_testing_growth = True
+                        
+                        synergy_html = notifier.format_synergy_alert_email(mock_sig, mock_disc, token)
+                        real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], synergy_html, "Synergy Alert: RKLB Hammer Reversal", secondary_email=subscriber.get("secondary_email"))
+                        
+                        st.session_state.is_testing_synergy = False
+                        st.session_state.test_synergy_result = (real_sent, "RKLB", status_msg, synergy_html)
                         st.rerun()
 
-                    if "test_growth_result" in st.session_state:
-                        real_sent, top_tickers_label, g_model_tag, status_msg, growth_html = st.session_state.pop("test_growth_result")
-                        if real_sent:
-                            st.success(f"✅ Growth Catalyst Digest Email Sent ({top_tickers_label}) via {g_model_tag}: {status_msg}")
-                        else:
-                            st.info(f"ℹ️ [{g_model_tag}] {status_msg}")
-                        st.session_state.inspect_html = (f"Growth Catalyst Digest ({top_tickers_label})", growth_html)
+                    else:
+                        if st.button("⚡ Synergy Alert", use_container_width=True, key="btn_test_synergy_email"):
+                            st.session_state.is_testing_synergy = True
+                            st.rerun()
 
-            # --- Column 4: Cross-Engine Synergy Alert Test ---
-            with c_test4:
-                if st.session_state.get("is_testing_synergy"):
-                    st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} ⚡ Generating Synergy Alert...</div>', unsafe_allow_html=True)
-                    mock_sig = {
-                        "ticker": "RKLB",
-                        "pattern_type": "Hammer",
-                        "confidence_score": 91.5,
-                        "rsi_14": 31.8,
-                        "vol_mult": 2.15,
-                        "day2_close": 5.10,
-                        "entry_price": 5.10,
-                        "stop_loss": 4.85,
-                        "profit_target": 5.60,
-                        "ai_analysis": {
-                            "headline_summary": "Rocket Lab forms high-conviction Hammer buy reversal at $5.10 support following post-contract pullback.",
-                            "key_catalysts": ["Confirmed Hammer candlestick on 2.15x avg volume", "RSI oversold rebound at 31.8", "Support bounce at $5.10"],
-                            "risks": ["Broader defense sector volatility", "Space launch scheduling timing"],
-                            "plain_english_takeaway": "High-conviction cross-engine synergy setup for RKLB combining fundamental AI growth spark with technical Hammer entry."
-                        }
-                    }
-                    mock_disc = {
-                        "ticker": "RKLB",
-                        "discovery_date": (datetime.now() - timedelta(days=4)).strftime("%Y-%m-%d"),
-                        "initial_price": 5.40,
-                        "growth_score": 8.5,
-                        "catalyst_type": "Contract Win",
-                        "headline_summary": "Rocket Lab awarded $515M Prime Defense Satellite constellation contract."
-                    }
-                    
-                    synergy_html = notifier.format_synergy_alert_email(mock_sig, mock_disc, token)
-                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], synergy_html, "Synergy Alert: RKLB Hammer Reversal", secondary_email=subscriber.get("secondary_email"))
-                    
-                    st.session_state.is_testing_synergy = False
-                    st.session_state.test_synergy_result = (real_sent, "RKLB", status_msg, synergy_html)
-                    st.rerun()
+                        if "test_synergy_result" in st.session_state:
+                            real_sent, t_sym, status_msg, synergy_html = st.session_state.pop("test_synergy_result")
+                            if real_sent:
+                                st.success(f"✅ Cross-Engine Synergy Alert Sent for {t_sym}: {status_msg}")
+                            else:
+                                st.info(f"ℹ️ {status_msg}")
+                            st.session_state.inspect_html = (f"Cross-Engine Synergy Alert ({t_sym})", synergy_html)
 
-                else:
-                    if st.button("⚡ Synergy Alert", use_container_width=True, key="btn_test_synergy_email"):
-                        st.session_state.is_testing_synergy = True
+                # --- Column 5: Heartbeat Volatility Digest Test ---
+                with c_test5:
+                    if st.session_state.get("is_testing_hb_digest"):
+                        st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 💓 Assembling Heartbeat Digest...</div>', unsafe_allow_html=True)
+                        mock_hb_top_3 = [
+                            {
+                                "ticker": "RKLB",
+                                "conviction_score": 94.5,
+                                "ai_catalyst_score": 38.5,
+                                "math_score": 56.0,
+                                "catalyst_type": "Contract Win & Squeeze Pulse",
+                                "headline_summary": "Rocket Lab breaks out of 3-week $2.10 flatline on 4.8x volume following $515M Defense Prime contract win.",
+                                "key_catalysts": ["$515M SDA Defense Prime Satellite Award", "15-Day Bollinger Band Squeeze Band Width 7.2%", "Volume Surge 4.8x Normalized ADTV"],
+                                "risks": ["Short-term profit taking near $2.85 overhead resistance"],
+                                "plain_english_takeaway": "High-conviction Heartbeat Volatility Breakout setup for RKLB exiting multi-week consolidation.",
+                                "badge_tag": "🔥 MULTI-DAY MOMENTUM CONTINUATION",
+                                "badge_color": "#ff4757",
+                                "latest_price": 2.15,
+                                "prev_price": 1.98,
+                                "price_change_pct": 8.58,
+                                "vol_mult": 4.82,
+                                "bb_width_pct": 7.20,
+                                "above_200sma": True
+                            },
+                            {
+                                "ticker": "RDW",
+                                "conviction_score": 88.0,
+                                "ai_catalyst_score": 34.0,
+                                "math_score": 54.0,
+                                "catalyst_type": "Strategic Expansion",
+                                "headline_summary": "Redwire Corporation expands space infrastructure manufacturing facilities following major NASA contract.",
+                                "key_catalysts": ["NASA commercial orbital facility expansion", "Bollinger Band Squeeze Band Width 8.4%", "Volume Surge 3.6x ADTV"],
+                                "risks": ["Supply chain delivery timing"],
+                                "plain_english_takeaway": "Sleeping giant breakout setup for RDW bouncing off 200 SMA support.",
+                                "badge_tag": "⚡ DOUBLE-SYNERGY BREAKOUT",
+                                "badge_color": "#eccc68",
+                                "latest_price": 6.45,
+                                "prev_price": 6.05,
+                                "price_change_pct": 6.61,
+                                "vol_mult": 3.64,
+                                "bb_width_pct": 8.40,
+                                "above_200sma": True
+                            }
+                        ]
+
+                        hb_digest_html = notifier.format_heartbeat_digest_email(mock_hb_top_3, token)
+                        hb_tickers_label = ", ".join(x["ticker"] for x in mock_hb_top_3)
+                        real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], hb_digest_html, f"Heartbeat Digest ({hb_tickers_label})", secondary_email=subscriber.get("secondary_email"))
+
+                        st.session_state.is_testing_hb_digest = False
+                        st.session_state.test_hb_digest_result = (real_sent, hb_tickers_label, "Groq AI", status_msg, hb_digest_html)
                         st.rerun()
 
-                    if "test_synergy_result" in st.session_state:
-                        real_sent, t_sym, status_msg, synergy_html = st.session_state.pop("test_synergy_result")
-                        if real_sent:
-                            st.success(f"✅ Cross-Engine Synergy Alert Sent for {t_sym}: {status_msg}")
-                        else:
-                            st.info(f"ℹ️ {status_msg}")
-                        st.session_state.inspect_html = (f"Cross-Engine Synergy Alert ({t_sym})", synergy_html)
+                    else:
+                        if st.button("💓 Heartbeat Digest", use_container_width=True, key="btn_test_hb_digest"):
+                            st.session_state.is_testing_hb_digest = True
+                            st.rerun()
 
-            # --- Column 5: Heartbeat Volatility Digest Test ---
-            with c_test5:
-                if st.session_state.get("is_testing_hb_digest"):
-                    st.markdown(f'<div class="tr-spinner-badge">{TR_SPINNER_SVG} 💓 Assembling Heartbeat Digest...</div>', unsafe_allow_html=True)
-                    mock_hb_top_3 = [
-                        {
-                            "ticker": "RKLB",
-                            "conviction_score": 94.5,
-                            "ai_catalyst_score": 38.5,
-                            "math_score": 56.0,
-                            "catalyst_type": "Contract Win & Squeeze Pulse",
-                            "headline_summary": "Rocket Lab breaks out of 3-week $2.10 flatline on 4.8x volume following $515M Defense Prime contract win.",
-                            "key_catalysts": ["$515M SDA Defense Prime Satellite Award", "15-Day Bollinger Band Squeeze Band Width 7.2%", "Volume Surge 4.8x Normalized ADTV"],
-                            "risks": ["Short-term profit taking near $2.85 overhead resistance"],
-                            "plain_english_takeaway": "High-conviction Heartbeat Volatility Breakout setup for RKLB exiting multi-week consolidation.",
-                            "badge_tag": "🔥 MULTI-DAY MOMENTUM CONTINUATION",
-                            "badge_color": "#ff4757",
-                            "latest_price": 2.15,
-                            "prev_price": 1.98,
-                            "price_change_pct": 8.58,
-                            "vol_mult": 4.82,
-                            "bb_width_pct": 7.20,
-                            "above_200sma": True
-                        },
-                        {
-                            "ticker": "RDW",
-                            "conviction_score": 88.0,
-                            "ai_catalyst_score": 34.0,
-                            "math_score": 54.0,
-                            "catalyst_type": "Strategic Expansion",
-                            "headline_summary": "Redwire Corporation expands space infrastructure manufacturing facilities following major NASA contract.",
-                            "key_catalysts": ["NASA commercial orbital facility expansion", "Bollinger Band Squeeze Band Width 8.4%", "Volume Surge 3.6x ADTV"],
-                            "risks": ["Supply chain delivery timing"],
-                            "plain_english_takeaway": "Sleeping giant breakout setup for RDW bouncing off 200 SMA support.",
-                            "badge_tag": "⚡ DOUBLE-SYNERGY BREAKOUT",
-                            "badge_color": "#eccc68",
-                            "latest_price": 6.45,
-                            "prev_price": 6.05,
-                            "price_change_pct": 6.61,
-                            "vol_mult": 3.64,
-                            "bb_width_pct": 8.40,
-                            "above_200sma": True
-                        }
-                    ]
+                        if "test_hb_digest_result" in st.session_state:
+                            real_sent, hb_tickers_label, g_model_tag, status_msg, hb_digest_html = st.session_state.pop("test_hb_digest_result")
+                            if real_sent:
+                                st.success(f"✅ Heartbeat Digest Email Sent ({hb_tickers_label}): {status_msg}")
+                            else:
+                                st.info(f"ℹ️ [{g_model_tag}] {status_msg}")
+                            st.session_state.inspect_html = (f"Heartbeat Volatility Digest ({hb_tickers_label})", hb_digest_html)
 
-                    hb_digest_html = notifier.format_heartbeat_digest_email(mock_hb_top_3, token)
-                    hb_tickers_label = ", ".join(x["ticker"] for x in mock_hb_top_3)
-                    real_sent, status_msg = notifier.simulate_send_alert(subscriber["email"], hb_digest_html, f"Heartbeat Digest ({hb_tickers_label})", secondary_email=subscriber.get("secondary_email"))
-
-                    st.session_state.is_testing_hb_digest = False
-                    st.session_state.test_hb_digest_result = (real_sent, hb_tickers_label, "Groq AI", status_msg, hb_digest_html)
-                    st.rerun()
-
-                else:
-                    if st.button("💓 Heartbeat Digest", use_container_width=True, key="btn_test_hb_digest"):
-                        st.session_state.is_testing_hb_digest = True
-                        st.rerun()
-
-                    if "test_hb_digest_result" in st.session_state:
-                        real_sent, hb_tickers_label, g_model_tag, status_msg, hb_digest_html = st.session_state.pop("test_hb_digest_result")
-                        if real_sent:
-                            st.success(f"✅ Heartbeat Digest Email Sent ({hb_tickers_label}): {status_msg}")
-                        else:
-                            st.info(f"ℹ️ {status_msg}")
-                        st.session_state.inspect_html = (f"Heartbeat Volatility Digest ({hb_tickers_label})", hb_digest_html)
-
-            if "inspect_html" in st.session_state:
-                label, h_content = st.session_state.inspect_html
-                st.write(f"**Live Layout Inspector Preview ({label}):**")
-                st.components.v1.html(h_content, height=450, scrolling=True)
+                if "inspect_html" in st.session_state:
+                    label, h_content = st.session_state.inspect_html
+                    st.write(f"**Live Layout Inspector Preview ({label}):**")
+                    st.components.v1.html(h_content, height=450, scrolling=True)
 
 
         with st.expander("🗑️ Account Settings & Unsubscribe", expanded=False):

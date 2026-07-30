@@ -151,6 +151,13 @@ def init_db():
                 conn.execute("ALTER TABLE subscribers ADD COLUMN secondary_email TEXT;")
             if "paper_position_size" not in columns:
                 conn.execute("ALTER TABLE subscribers ADD COLUMN paper_position_size REAL DEFAULT 500.0;")
+            if "is_admin" not in columns:
+                conn.execute("ALTER TABLE subscribers ADD COLUMN is_admin INTEGER DEFAULT 0;")
+
+            admin_emails = os.environ.get("ADMIN_EMAILS", "devin.vorgang@gmail.com").lower().split(",")
+            for ae in admin_emails:
+                if ae.strip():
+                    conn.execute("UPDATE subscribers SET is_admin = 1 WHERE email = ?", (ae.strip(),))
                 
             cursor_s = conn.execute("PRAGMA table_info(scheduler_state);")
             s_columns = [row["name"] for row in cursor_s.fetchall()]
@@ -444,7 +451,7 @@ def get_pending_discoveries_for_subscriber(subscriber_id, trading_date=None):
         conn.close()
 
 
-def create_subscriber(email, wants_buys=1, wants_risks=1, wants_sells=1, initial_tickers=None):
+def create_subscriber(email, wants_buys=1, wants_risks=1, wants_sells=1, wants_growth=1, wants_heartbeat=1, initial_tickers=None):
     """
     Registers a new subscriber, generates a management token, and adds initial watchlist tickers.
     Returns (id, management_token) on success.
@@ -455,10 +462,10 @@ def create_subscriber(email, wants_buys=1, wants_risks=1, wants_sells=1, initial
         with conn:
             cursor = conn.execute(
                 """
-                INSERT INTO subscribers (email, management_token, wants_buys, wants_risks, wants_sells)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO subscribers (email, management_token, wants_buys, wants_risks, wants_sells, wants_growth, wants_heartbeat)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (email.strip().lower(), token, int(wants_buys), int(wants_risks), int(wants_sells))
+                (email.strip().lower(), token, int(wants_buys), int(wants_risks), int(wants_sells), int(wants_growth), int(wants_heartbeat))
             )
             subscriber_id = cursor.lastrowid
             
@@ -513,6 +520,42 @@ def get_subscriber_by_email(email):
     except sqlite3.Error as e:
         logging.error(f"Database error getting subscriber by email: {e}")
         return None
+    finally:
+        conn.close()
+
+def is_admin_subscriber(subscriber):
+    """
+    Returns True if subscriber has Admin privileges.
+    Checks environment variable ADMIN_EMAILS (defaults to 'devin.vorgang@gmail.com').
+    Also checks if subscriber's is_admin column in database is 1.
+    """
+    if not subscriber or not isinstance(subscriber, dict):
+        return False
+
+    admin_emails = os.environ.get("ADMIN_EMAILS", "devin.vorgang@gmail.com").lower().split(",")
+    admin_emails = [e.strip() for e in admin_emails if e.strip()]
+
+    email = subscriber.get("email", "").strip().lower()
+    if email in admin_emails:
+        return True
+
+    if subscriber.get("is_admin") == 1:
+        return True
+
+    return False
+
+def set_subscriber_admin_status(email, is_admin_flag=1):
+    """
+    Sets the is_admin status (1 or 0) for a subscriber by email address.
+    """
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute("UPDATE subscribers SET is_admin = ? WHERE email = ?", (int(is_admin_flag), email.strip().lower()))
+        return True
+    except sqlite3.Error as e:
+        logging.error(f"Database error setting admin status: {e}")
+        return False
     finally:
         conn.close()
 
