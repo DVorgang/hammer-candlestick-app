@@ -126,56 +126,21 @@ def run_heartbeat_scan(trigger_type="manual"):
         if idx < len(math_candidates) - 1 and not daily_rate_limited:
             time.sleep(3)
 
-    # ─── PASS 3: Single Digest Email Dispatch (Top 3 Candidates) ───
+    # ─── PASS 3: Buffer Heartbeat Discoveries to Database (Pending Digest Delivery) ───
     if qualified_heartbeats:
-        # Sort candidates by 100-Point Conviction Score descending — highest score rank first
-        qualified_heartbeats.sort(key=lambda x: float(x.get("conviction_score") or 0.0), reverse=True)
-        top_3_setups = qualified_heartbeats[:3]
-        top_tickers_label = ", ".join(x.get("ticker", "") for x in top_3_setups)
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        logging.info(f"💾 Buffering {len(qualified_heartbeats)} Heartbeat Discovery setups to database for scheduled digest delivery...")
         
-        logging.info(f"📦 Bundling Top {len(top_3_setups)} Heartbeat Breakouts ({top_tickers_label}) into single email digest...")
-        
-        for sub in heartbeat_subscribers:
-            email = sub["email"]
-            token = sub["management_token"]
-            sub_id = sub["id"]
-            sec_email = sub.get("secondary_email")
+        for item in qualified_heartbeats:
+            t_sym = item.get("ticker")
+            c_type = item.get("catalyst_type", "Heartbeat Surge")
+            l_price = item.get("latest_price")
+            c_score = item.get("conviction_score", 80.0)
+            g_summary = item.get("headline_summary", "")
             
-            digest_html = notifier.format_heartbeat_digest_email(top_3_setups, token)
-            subject_label = f"Heartbeat Volatility Digest: Top {len(top_3_setups)} Breakouts ({top_tickers_label})"
-            sent_real_email, status_msg = notifier.simulate_send_alert(email, digest_html, subject_label, secondary_email=sec_email)
-            
-            logging.info(f"Heartbeat Volatility Digest delivery status for {email}: {status_msg}")
-            
-            if sent_real_email:
-                for item in top_3_setups:
-                    t_sym = item.get("ticker")
-                    c_type = item.get("catalyst_type", "Heartbeat Surge")
-                    l_price = item.get("latest_price")
-                    c_score = item.get("conviction_score", 80.0)
-                    g_summary = item.get("headline_summary", "")
-                    cur_price = float(l_price or 0.0)
-                    target_pct = 0.32 if cur_price <= 5.00 else 0.20
-                    stop_pct = 0.065 if cur_price <= 5.00 else 0.05
-                    stop_loss = round(cur_price * (1.0 - stop_pct), 2) if cur_price else None
-                    profit_target = round(cur_price * (1.0 + target_pct), 2) if cur_price else None
-                    
-                    # Record in sentinel.db heartbeat_discoveries table
-                    database.record_heartbeat_discovery(t_sym, c_score, c_type, g_summary, l_price)
-                    
-                    h_signal = {
-                        "ticker": t_sym,
-                        "pattern_type": f"Heartbeat_{c_type}",
-                        "day1_date": str(datetime.now())[:10],
-                        "day2_date": str(datetime.now())[:10],
-                        "day3_open": l_price,
-                        "entry_price": l_price,
-                        "stop_loss": stop_loss,
-                        "profit_target": profit_target,
-                        "vol_mult": item.get("vol_mult")
-                    }
-                    database.record_sent_alert(sub_id, h_signal)
-                    total_alerts_sent += 1
+            # Record in sentinel.db heartbeat_discoveries table with digest_status = 'PENDING'
+            database.record_heartbeat_discovery(t_sym, c_score, c_type, g_summary, l_price)
+            total_alerts_sent += 1
 
     duration = time.time() - start_time
     tickers_count = len(candidate_tickers)
