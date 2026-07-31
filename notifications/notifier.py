@@ -82,7 +82,13 @@ def format_alert_email(signal, token, base_url="http://localhost:8501"):
     
     alert_title, intensity = get_alert_category_and_emoji(pattern_type, score)
     
-    entry_est = signal.get("day3_open") or signal.get("day2_close")
+    entry_est = float(signal.get("day3_open") or signal.get("day2_close") or signal.get("entry_price") or signal.get("price") or 0.0)
+    if entry_est == 0.0 and ticker != "TICKER":
+        try:
+            import yfinance as yf
+            entry_est = float(yf.Ticker(ticker).fast_info.last_price or 0.0)
+        except Exception:
+            pass
     
     epsilon = 0.01
     if pattern_type == "Hammer":
@@ -249,14 +255,27 @@ def format_synergy_alert_email(signal, discovery_info, token, base_url="http://l
     conf = float(signal.get("confidence_score") or 88.0)
     rsi = float(signal.get("rsi_14") or 32.0)
     vol_mult = float(signal.get("vol_mult") or 1.8)
-    entry_price = float(signal.get("entry_price") or signal.get("day2_close") or 0.0)
+    entry_price = float(signal.get("entry_price") or signal.get("day2_close") or signal.get("price") or signal.get("latest_price") or 0.0)
+    if entry_price == 0.0 and ticker != "TICKER":
+        try:
+            import yfinance as yf
+            entry_price = float(yf.Ticker(ticker).fast_info.last_price or 0.0)
+        except Exception:
+            pass
+
     stop_loss = float(signal.get("stop_loss") or (entry_price * 0.95))
     profit_target = float(signal.get("profit_target") or (entry_price * 1.10))
     
     # Discovery Info Context
     disc_date = html.escape(str(discovery_info.get("discovery_date") or "Recently"))
-    disc_price = discovery_info.get("initial_price")
-    disc_price_str = f"${float(disc_price):.2f}" if (disc_price and disc_price != "N/A") else "N/A"
+    disc_price = discovery_info.get("initial_price") or discovery_info.get("latest_price") or discovery_info.get("entry_price")
+    if (not disc_price or disc_price == "N/A" or float(disc_price) == 0.0) and ticker != "TICKER":
+        try:
+            import yfinance as yf
+            disc_price = float(yf.Ticker(ticker).fast_info.last_price or 0.0)
+        except Exception:
+            pass
+    disc_price_str = f"${float(disc_price):.2f}" if (disc_price and disc_price != "N/A" and float(disc_price) > 0.0) else "N/A"
     disc_score = float(discovery_info.get("growth_score") or 8.5)
     disc_cat = html.escape(str(discovery_info.get("catalyst_type") or "Growth Breakout"))
     disc_summary = html.escape(str(discovery_info.get("headline_summary") or "High-volume AI growth catalyst."))
