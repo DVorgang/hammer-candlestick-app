@@ -128,9 +128,25 @@ def run_growth_scan(trigger_type="manual"):
             l_price = item.get("latest_price")
             g_score = item.get("growth_score", 8.0)
             g_summary = item.get("headline_summary", "")
+            key_cats = item.get("key_catalysts", [])
+            risks_list = item.get("risks", [])
+            takeaway = item.get("plain_english_takeaway", "")
+            news = item.get("news_articles", [])
+            v_mult = item.get("vol_mult", 1.0)
             
             # Record in sentinel.db growth_discoveries table with digest_status = 'PENDING'
-            database.record_growth_discovery(t_sym, g_score, c_type, g_summary, l_price)
+            database.record_growth_discovery(
+                ticker=t_sym,
+                growth_score=g_score,
+                catalyst_type=c_type,
+                headline_summary=g_summary,
+                initial_price=l_price,
+                key_catalysts=key_cats,
+                risks=risks_list,
+                plain_english_takeaway=takeaway,
+                news_articles=news,
+                vol_mult=v_mult
+            )
             total_alerts_sent += 1
 
     duration = time.time() - start_time

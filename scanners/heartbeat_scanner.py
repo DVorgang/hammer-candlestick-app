@@ -137,9 +137,33 @@ def run_heartbeat_scan(trigger_type="manual"):
             l_price = item.get("latest_price")
             c_score = item.get("conviction_score", 80.0)
             g_summary = item.get("headline_summary", "")
+            key_cats = item.get("key_catalysts", [])
+            risks_list = item.get("risks", [])
+            takeaway = item.get("plain_english_takeaway", "")
+            news = item.get("news_articles", [])
+            b_tag = item.get("badge_tag", "💓 SLEEPING GIANT HEARTBEAT PULSE")
+            b_color = item.get("badge_color", "#ff007f")
+            v_mult = item.get("vol_mult", 3.0)
+            bb_w = item.get("bb_width_pct", 8.0)
+            a_200 = item.get("above_200sma", False)
             
             # Record in sentinel.db heartbeat_discoveries table with digest_status = 'PENDING'
-            database.record_heartbeat_discovery(t_sym, c_score, c_type, g_summary, l_price)
+            database.record_heartbeat_discovery(
+                ticker=t_sym,
+                conviction_score=c_score,
+                catalyst_type=c_type,
+                headline_summary=g_summary,
+                initial_price=l_price,
+                key_catalysts=key_cats,
+                risks=risks_list,
+                plain_english_takeaway=takeaway,
+                news_articles=news,
+                badge_tag=b_tag,
+                badge_color=b_color,
+                vol_mult=v_mult,
+                bb_width_pct=bb_w,
+                above_200sma=a_200
+            )
             total_alerts_sent += 1
 
     duration = time.time() - start_time

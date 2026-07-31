@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import json
 import uuid
 import logging
 import random
@@ -194,7 +195,7 @@ def init_db():
                 if col_name not in a_columns:
                     conn.execute(f"ALTER TABLE sent_alerts ADD COLUMN {col_name} {col_type};")
 
-            # Check digest tracking columns in growth_discoveries and heartbeat_discoveries
+            # Check digest tracking and rich detail columns in growth_discoveries and heartbeat_discoveries
             for tbl in ["growth_discoveries", "heartbeat_discoveries"]:
                 cursor_tbl = conn.execute(f"PRAGMA table_info({tbl});")
                 tbl_cols = [row["name"] for row in cursor_tbl.fetchall()]
@@ -202,6 +203,24 @@ def init_db():
                     conn.execute(f"ALTER TABLE {tbl} ADD COLUMN trading_date TEXT;")
                 if "digest_status" not in tbl_cols:
                     conn.execute(f"ALTER TABLE {tbl} ADD COLUMN digest_status TEXT DEFAULT 'PENDING';")
+                if "key_catalysts_json" not in tbl_cols:
+                    conn.execute(f"ALTER TABLE {tbl} ADD COLUMN key_catalysts_json TEXT;")
+                if "risks_json" not in tbl_cols:
+                    conn.execute(f"ALTER TABLE {tbl} ADD COLUMN risks_json TEXT;")
+                if "plain_english_takeaway" not in tbl_cols:
+                    conn.execute(f"ALTER TABLE {tbl} ADD COLUMN plain_english_takeaway TEXT;")
+                if "news_articles_json" not in tbl_cols:
+                    conn.execute(f"ALTER TABLE {tbl} ADD COLUMN news_articles_json TEXT;")
+                if "badge_tag" not in tbl_cols:
+                    conn.execute(f"ALTER TABLE {tbl} ADD COLUMN badge_tag TEXT;")
+                if "badge_color" not in tbl_cols:
+                    conn.execute(f"ALTER TABLE {tbl} ADD COLUMN badge_color TEXT;")
+                if "vol_mult" not in tbl_cols:
+                    conn.execute(f"ALTER TABLE {tbl} ADD COLUMN vol_mult REAL;")
+                if "bb_width_pct" not in tbl_cols:
+                    conn.execute(f"ALTER TABLE {tbl} ADD COLUMN bb_width_pct REAL;")
+                if "above_200sma" not in tbl_cols:
+                    conn.execute(f"ALTER TABLE {tbl} ADD COLUMN above_200sma INTEGER;")
 
             # Create digest delivery and association tables
             conn.execute("""
@@ -399,7 +418,7 @@ def get_pending_discoveries_for_subscriber(subscriber_id, trading_date=None):
     try:
         growth_rows = conn.execute(
             """
-            SELECT g.id, g.ticker, g.growth_score as score, g.catalyst_type, g.headline_summary, g.initial_price, g.created_at, 'growth' as source_type
+            SELECT g.id, g.ticker, g.growth_score as score, g.catalyst_type, g.headline_summary, g.initial_price, g.key_catalysts_json, g.risks_json, g.plain_english_takeaway, g.news_articles_json, g.vol_mult, g.created_at, 'growth' as source_type
             FROM growth_discoveries g
             WHERE g.id NOT IN (
                 SELECT i.source_id 
@@ -413,7 +432,7 @@ def get_pending_discoveries_for_subscriber(subscriber_id, trading_date=None):
         
         heartbeat_rows = conn.execute(
             """
-            SELECT h.id, h.ticker, h.conviction_score as score, h.catalyst_type, h.headline_summary, h.initial_price, h.created_at, 'heartbeat' as source_type
+            SELECT h.id, h.ticker, h.conviction_score as score, h.catalyst_type, h.headline_summary, h.initial_price, h.key_catalysts_json, h.risks_json, h.plain_english_takeaway, h.news_articles_json, h.badge_tag, h.badge_color, h.vol_mult, h.bb_width_pct, h.above_200sma, h.created_at, 'heartbeat' as source_type
             FROM heartbeat_discoveries h
             WHERE h.id NOT IN (
                 SELECT i.source_id 
@@ -438,10 +457,49 @@ def get_pending_discoveries_for_subscriber(subscriber_id, trading_date=None):
             """,
             (subscriber_id, subscriber_id)
         ).fetchall()
+
+        growth_list = []
+        for r in growth_rows:
+            d = dict(r)
+            try:
+                d["key_catalysts"] = json.loads(d["key_catalysts_json"]) if d.get("key_catalysts_json") else []
+            except Exception:
+                d["key_catalysts"] = []
+            try:
+                d["risks"] = json.loads(d["risks_json"]) if d.get("risks_json") else []
+            except Exception:
+                d["risks"] = []
+            try:
+                d["news_articles"] = json.loads(d["news_articles_json"]) if d.get("news_articles_json") else []
+            except Exception:
+                d["news_articles"] = []
+            d["latest_price"] = d.get("initial_price")
+            d["growth_score"] = d.get("score")
+            growth_list.append(d)
+
+        heartbeat_list = []
+        for r in heartbeat_rows:
+            d = dict(r)
+            try:
+                d["key_catalysts"] = json.loads(d["key_catalysts_json"]) if d.get("key_catalysts_json") else []
+            except Exception:
+                d["key_catalysts"] = []
+            try:
+                d["risks"] = json.loads(d["risks_json"]) if d.get("risks_json") else []
+            except Exception:
+                d["risks"] = []
+            try:
+                d["news_articles"] = json.loads(d["news_articles_json"]) if d.get("news_articles_json") else []
+            except Exception:
+                d["news_articles"] = []
+            d["latest_price"] = d.get("initial_price")
+            d["conviction_score"] = d.get("score")
+            d["above_200sma"] = bool(d.get("above_200sma", 0))
+            heartbeat_list.append(d)
         
         return {
-            "growth": [dict(r) for r in growth_rows],
-            "heartbeat": [dict(r) for r in heartbeat_rows],
+            "growth": growth_list,
+            "heartbeat": heartbeat_list,
             "technical": [dict(r) for r in tech_rows]
         }
     except sqlite3.Error as e:
@@ -1252,24 +1310,34 @@ def get_system_health():
         conn.close()
 
 
-def record_growth_discovery(ticker, growth_score, catalyst_type, headline_summary="", initial_price=None):
+def record_growth_discovery(ticker, growth_score, catalyst_type, headline_summary="", initial_price=None,
+                            key_catalysts=None, risks=None, plain_english_takeaway="", news_articles=None, vol_mult=None):
     """
     Records a new AI Growth Discovery in sentinel.db or updates last_featured_date if existing.
+    Persists rich catalyst details, risks, takeaways, and news articles for email rendering.
     """
     ticker = ticker.strip().upper()
     now_str = datetime.now().strftime("%Y-%m-%d")
     conn = get_db_connection()
+    k_json = json.dumps(key_catalysts or [])
+    r_json = json.dumps(risks or [])
+    n_json = json.dumps(news_articles or [])
     try:
         with conn:
             conn.execute("""
                 INSERT INTO growth_discoveries 
-                (ticker, discovery_date, initial_price, growth_score, catalyst_type, headline_summary, last_featured_date, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'active_monitoring')
+                (ticker, discovery_date, initial_price, growth_score, catalyst_type, headline_summary, last_featured_date, status, key_catalysts_json, risks_json, plain_english_takeaway, news_articles_json, vol_mult)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'active_monitoring', ?, ?, ?, ?, ?)
                 ON CONFLICT(ticker, discovery_date) DO UPDATE SET
                     growth_score = excluded.growth_score,
                     headline_summary = excluded.headline_summary,
-                    last_featured_date = excluded.last_featured_date;
-            """, (ticker, now_str, initial_price, float(growth_score), catalyst_type, headline_summary, now_str))
+                    last_featured_date = excluded.last_featured_date,
+                    key_catalysts_json = excluded.key_catalysts_json,
+                    risks_json = excluded.risks_json,
+                    plain_english_takeaway = excluded.plain_english_takeaway,
+                    news_articles_json = excluded.news_articles_json,
+                    vol_mult = excluded.vol_mult;
+            """, (ticker, now_str, initial_price, float(growth_score), catalyst_type, headline_summary, now_str, k_json, r_json, plain_english_takeaway, n_json, vol_mult))
         logging.info(f"Recorded Growth Discovery for {ticker} (Score: {growth_score:.1f}, Price: {initial_price})")
         return True
     except sqlite3.Error as e:
@@ -1375,13 +1443,19 @@ def set_heartbeat_scheduler_active(is_active):
         conn.close()
 
 
-def record_heartbeat_discovery(ticker, conviction_score, catalyst_type, headline_summary="", initial_price=None):
+def record_heartbeat_discovery(ticker, conviction_score, catalyst_type, headline_summary="", initial_price=None,
+                               key_catalysts=None, risks=None, plain_english_takeaway="", news_articles=None,
+                               badge_tag="", badge_color="", vol_mult=None, bb_width_pct=None, above_200sma=None):
     """
     Records a new AI Heartbeat Volatility Discovery in sentinel.db or updates last_featured_date if existing.
+    Persists rich catalyst details, risks, takeaways, badges, and news articles for email rendering.
     """
     ticker = ticker.strip().upper()
     now_date = datetime.now().strftime("%Y-%m-%d")
     conn = get_db_connection()
+    k_json = json.dumps(key_catalysts or [])
+    r_json = json.dumps(risks or [])
+    n_json = json.dumps(news_articles or [])
     try:
         cursor = conn.cursor()
         existing = cursor.execute(
@@ -1394,19 +1468,21 @@ def record_heartbeat_discovery(ticker, conviction_score, catalyst_type, headline
                 conn.execute(
                     """
                     UPDATE heartbeat_discoveries 
-                    SET conviction_score = ?, catalyst_type = ?, headline_summary = ?, last_featured_date = ?
+                    SET conviction_score = ?, catalyst_type = ?, headline_summary = ?, last_featured_date = ?,
+                        key_catalysts_json = ?, risks_json = ?, plain_english_takeaway = ?, news_articles_json = ?,
+                        badge_tag = ?, badge_color = ?, vol_mult = ?, bb_width_pct = ?, above_200sma = ?
                     WHERE id = ?;
                     """,
-                    (float(conviction_score), catalyst_type, headline_summary, now_date, existing["id"])
+                    (float(conviction_score), catalyst_type, headline_summary, now_date, k_json, r_json, plain_english_takeaway, n_json, badge_tag, badge_color, vol_mult, bb_width_pct, 1 if above_200sma else 0, existing["id"])
                 )
             else:
                 conn.execute(
                     """
                     INSERT INTO heartbeat_discoveries 
-                    (ticker, discovery_date, initial_price, conviction_score, catalyst_type, headline_summary, last_featured_date)
-                    VALUES (?, ?, ?, ?, ?, ?, ?);
+                    (ticker, discovery_date, initial_price, conviction_score, catalyst_type, headline_summary, last_featured_date, key_catalysts_json, risks_json, plain_english_takeaway, news_articles_json, badge_tag, badge_color, vol_mult, bb_width_pct, above_200sma)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                     """,
-                    (ticker, now_date, initial_price, float(conviction_score), catalyst_type, headline_summary, now_date)
+                    (ticker, now_date, initial_price, float(conviction_score), catalyst_type, headline_summary, now_date, k_json, r_json, plain_english_takeaway, n_json, badge_tag, badge_color, vol_mult, bb_width_pct, 1 if above_200sma else 0)
                 )
         return True
     except sqlite3.Error as e:
