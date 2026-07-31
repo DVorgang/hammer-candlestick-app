@@ -363,9 +363,18 @@ def format_technical_digest_email(signals, token, base_url="http://localhost:850
         ticker = html.escape(str(signal.get("ticker", "TICKER")))
         pattern = html.escape(str(signal.get("pattern_type", "Reversal")))
         conf = float(signal.get("confidence_score") or 85.0)
-        rsi = float(signal.get("rsi_14") or 30.0)
-        vol_mult = float(signal.get("vol_mult") or 1.5)
-        day2_close = float(signal.get("day2_close") or 0.0)
+        rsi = float(signal.get("rsi_14") or signal.get("rsi_at_entry") or 30.0)
+        vol_mult = float(signal.get("vol_mult") or signal.get("vol_mult_at_entry") or 1.5)
+        day2_close = float(signal.get("day2_close") or signal.get("entry_price") or signal.get("price") or 0.0)
+        
+        # Self-healing fallback if price is 0.0
+        if day2_close == 0.0 and ticker != "TICKER":
+            try:
+                import yfinance as yf
+                t_data = yf.Ticker(ticker).fast_info
+                day2_close = float(t_data.last_price or 0.0)
+            except Exception:
+                pass
         
         is_hammer = "hammer" in pattern.lower()
         badge_bg = "#dcfce7" if is_hammer else "#fee2e2"
@@ -470,8 +479,14 @@ def format_growth_digest_email(candidates, token, base_url="http://localhost:850
         summary = html.escape(str(item.get("headline_summary", "")))
         takeaway = html.escape(str(item.get("plain_english_takeaway", "")))
         vol_mult = float(item.get("vol_mult") or 1.0)
-        latest_price = item.get("latest_price")
-        price_str = f"${float(latest_price):.2f}" if (latest_price and latest_price != "N/A") else "N/A"
+        latest_price = item.get("latest_price") or item.get("initial_price") or item.get("entry_price") or item.get("price")
+        if (not latest_price or latest_price == "N/A" or float(latest_price) == 0.0) and ticker != "TICKER":
+            try:
+                import yfinance as yf
+                latest_price = float(yf.Ticker(ticker).fast_info.last_price or 0.0)
+            except Exception:
+                pass
+        price_str = f"${float(latest_price):.2f}" if (latest_price and latest_price != "N/A" and float(latest_price) > 0.0) else "N/A"
         
         key_cats = "".join(f"<li>{html.escape(str(k))}</li>" for k in (item.get("key_catalysts") or []))
         risks = "".join(f"<li>{html.escape(str(r))}</li>" for r in (item.get("risks") or []))
@@ -685,7 +700,13 @@ def format_heartbeat_digest_email(top_setups, token, base_url="http://localhost:
         badge_tag = html.escape(str(item.get("badge_tag") or "SLEEPING GIANT HEARTBEAT PULSE"))
         badge_color = html.escape(str(item.get("badge_color") or "#ff007f"))
         
-        cur_price = float(item.get("latest_price") or 0.0)
+        cur_price = float(item.get("latest_price") or item.get("initial_price") or item.get("entry_price") or item.get("price") or 0.0)
+        if cur_price == 0.0 and ticker != "TICKER":
+            try:
+                import yfinance as yf
+                cur_price = float(yf.Ticker(ticker).fast_info.last_price or 0.0)
+            except Exception:
+                pass
         change_pct = float(item.get("price_change_pct") or 0.0)
         vol_mult = float(item.get("vol_mult") or 3.0)
         bb_width = float(item.get("bb_width_pct") or 8.0)
