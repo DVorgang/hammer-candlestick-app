@@ -405,35 +405,60 @@ def main():
     render_landing_page()
 
 def render_landing_page():
-    st.markdown('<div class="main-title">📈 Candlestick Sentinel</div>', unsafe_allow_html=True)
-    st.markdown('<div class="subtitle">Scans market setups, confirms reversals, and sends trade blueprints directly to your inbox.</div>', unsafe_allow_html=True)
+    logo_b64 = get_base64_logo()
+    
+    if logo_b64:
+        st.markdown(f"""
+        <div style="margin-top: 10px; margin-bottom: 24px; display: flex; align-items: center; gap: 20px;">
+            <img src="{logo_b64}" style="width: 120px; height: 120px; border-radius: 16px; object-fit: contain; background: #0f172a; padding: 6px; border: 1px solid #334155; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); flex-shrink: 0;">
+            <div>
+                <h1 style="margin: 0; font-size: 2.8rem; font-weight: 800; background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1.1;">TRadar</h1>
+                <span style="color: #94a3b8; font-size: 1.1rem; display: inline-block; margin-top: 8px; font-weight: 500;">Real-Time Market Scanning & Portfolio Intelligence</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div style="margin-top: 10px; margin-bottom: 24px;">
+            <h1 style="margin: 0; font-size: 3.0rem; font-weight: 800; background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">TRadar</h1>
+            <span style="color: #94a3b8; font-size: 1.1rem; display: inline-block; margin-top: 6px; font-weight: 500;">Real-Time Market Scanning & Portfolio Intelligence</span>
+        </div>
+        """, unsafe_allow_html=True)
     
     col1, col2 = st.columns([3, 2])
     
     with col1:
-        st.markdown("""
-        <div class="card">
-            <div class="card-title">How It Works</div>
-            <p style="color: #cbd5e1; font-size: 14px; line-height: 1.6;">
-                Trading candlestick reversals without confirmation is a recipe for losses. Candlestick Sentinel enforces a rigid <strong>3-day data validation cycle</strong> to completely eliminate lookahead bias:
-            </p>
-            <ol style="color: #cbd5e1; font-size: 14px; line-height: 1.8; padding-left: 20px;">
-                <li><strong>Day 1 (Setup):</strong> We scan watchlists for high-probability geometrical <strong>Hammer</strong> (bullish) and <strong>Hanging Man</strong> (bearish) reversal shapes.</li>
-                <li><strong>Day 2 (Confirmation):</strong> We wait for the next day's close. A Hammer must close above Day 1's High; a Hanging Man must close below Day 1's Low. Unconfirmed patterns are immediately discarded.</li>
-                <li><strong>Day 3 (Execution):</strong> At 9:31 AM EST, risk parameters are calculated using the live Opening price. If a gap has not invalidated the setup, a complete trade blueprint (Entry, Stop Loss, 2:1 Profit Target) is emailed to you.</li>
-            </ol>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("### Featured Growth Ticklists")
-        st.write("Click any stock button below to inspect live market data & technical indicators:")
-        tickers_show = ["NVDA", "AMD", "PLTR", "RKLB", "SOFI", "MU"]
-        cols = st.columns(len(tickers_show))
-        for idx, tick in enumerate(tickers_show):
-            with cols[idx]:
-                if st.button(f"📈 {tick}", key=f"land_tick_{tick}", use_container_width=True):
-                    st.session_state.selected_ticker_detail = tick
-                    st.rerun()
+        st.markdown("""<div class="card" style="padding: 24px; margin-bottom: 20px;">
+<div style="font-size: 1.2rem; font-weight: 700; margin-bottom: 12px; color: #38bdf8;">🛰️ What TRadar Does</div>
+<p style="color: #cbd5e1; font-size: 14px; line-height: 1.6; margin-bottom: 16px;">
+TRadar screens a market-wide universe of <strong>150+ high-volume tickers and subscriber watchlists</strong> 24/7. It uses fast mathematical pre-filters (Volume Surges & Bollinger Squeezes) before <strong>Groq AI (Llama 3.3-70B)</strong> evaluates high-conviction catalysts and delivers trade blueprints directly to your email and dashboard.
+</p>
+<div style="font-size: 1.1rem; font-weight: 700; margin-top: 16px; margin-bottom: 10px; color: #818cf8;">⚡ The 3 Core Radar Engines</div>
+<div style="color: #cbd5e1; font-size: 13.5px; line-height: 1.6;">
+<div style="margin-bottom: 12px; padding: 10px; background: rgba(15, 23, 42, 0.6); border-radius: 8px; border-left: 3px solid #38bdf8;">
+<strong style="color: #38bdf8;">1. 📊 Watchlist Technical Reversals:</strong>
+Monitors your personal watchlist for confirmed <strong>Hammer</strong> (bullish buy) and <strong>Hanging Man</strong> (bearish risk) candlestick patterns using a strict 3-day validation lifecycle with 2:1 reward/risk blueprints.
+</div>
+<div style="margin-bottom: 12px; padding: 10px; background: rgba(15, 23, 42, 0.6); border-radius: 8px; border-left: 3px solid #a855f7;">
+<strong style="color: #c084fc;">2. 🚀 Whole-Market AI Growth Catalysts:</strong>
+Scans market-wide gainers for high-volume contract wins, FDA approvals, and earnings beats evaluated by <strong>Groq AI (Llama 3.3-70B)</strong> with conviction scores &ge; 8.0/10.
+</div>
+<div style="margin-bottom: 14px; padding: 10px; background: rgba(15, 23, 42, 0.6); border-radius: 8px; border-left: 3px solid #ec4899;">
+<strong style="color: #f472b6;">3. 💓 Heartbeat Volatility Expansion:</strong>
+Detects dormant <em>"Sleeping Giant"</em> stocks consolidating in ultra-tight volatility squeezes (Bollinger Band Width &lt; 12%) breaking out with sudden 3.0x+ volume pulses.
+</div>
+</div>
+<div style="margin-top: 14px; padding: 12px; background: rgba(30, 41, 59, 0.7); border: 1px solid #334155; border-radius: 8px;">
+<strong style="color: #38bdf8; font-size: 13px;">📧 Daily Email Digest Schedule:</strong>
+<ul style="margin: 4px 0 0 0; padding-left: 18px; color: #cbd5e1; font-size: 12.5px; line-height: 1.5;">
+<li><strong style="color: #f8fafc;">9:00 AM ET:</strong> Pre-Market Setup Briefing & Execution Plan</li>
+<li><strong style="color: #f8fafc;">4:30 PM ET:</strong> Post-Market Dedicated Channel Digests (Growth, Heartbeat & Technicals)</li>
+</ul>
+</div>
+<div style="margin-top: 10px; padding: 10px 12px; background: rgba(15, 23, 42, 0.5); border-radius: 8px; border: 1px solid #1e293b; color: #94a3b8; font-size: 12px; line-height: 1.4;">
+🛡️ <strong style="color: #cbd5e1;">Disciplined Risk Management:</strong> Enforces strict 3-day data validation to eliminate false signals, providing calculated Entry, Stop-Loss, and 2:1 Profit Target blueprints.
+</div>
+</div>""", unsafe_allow_html=True)
                 
     with col2:
         st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -443,6 +468,9 @@ def render_landing_page():
         # TAB: SIGN IN
         with tab_login:
             st.markdown("Enter your email to receive a secure 6-digit login code:")
+            st.markdown("""<div style="margin-top: 6px; margin-bottom: 12px; padding: 8px 10px; background: rgba(15, 23, 42, 0.6); border-radius: 6px; border: 1px solid #334155; color: #94a3b8; font-size: 11.5px; text-align: center;">
+🔒 <strong>Passwordless Security</strong> — No passwords stored. Secure 6-digit access codes sent directly to your inbox.
+</div>""", unsafe_allow_html=True)
             with st.form("login_form"):
                 login_email = st.text_input("Email Address", key="login_email_input").strip().lower()
                 login_submit = st.form_submit_button("Send Code")
@@ -466,6 +494,14 @@ def render_landing_page():
                             
         # TAB: REGISTER
         with tab_register:
+            st.markdown("""<div style="margin-top: 4px; margin-bottom: 12px; padding: 10px 12px; background: rgba(15, 23, 42, 0.6); border-radius: 8px; border: 1px solid #334155;">
+<strong style="color: #38bdf8; font-size: 12.5px;">✨ Included with Your TRadar Account:</strong>
+<ul style="margin: 4px 0 0 0; padding-left: 18px; color: #cbd5e1; font-size: 12px; line-height: 1.5;">
+<li>📧 9:00 AM & 4:30 PM Dedicated Channel Email Digests</li>
+<li>📊 Interactive Charts with 50/200 SMA & Wilder's 14-RSI</li>
+<li>⚡ Strategy Backtesting & Outcomes Performance Matrix</li>
+</ul>
+</div>""", unsafe_allow_html=True)
             with st.form("register_form"):
                 reg_email = st.text_input("Your Email Address", placeholder="e.g. investor@example.com").strip().lower()
                 
@@ -1472,21 +1508,22 @@ def render_management_dashboard(subscriber, token):
     risks_active = "Risks" if subscriber.get("wants_risks", 1) else ""
     sells_active = "Sells" if subscriber.get("wants_sells", 1) else ""
     growth_active = "Growth" if subscriber.get("wants_growth", 1) else ""
-    active_channels = ", ".join(filter(None, [buys_active, risks_active, sells_active, growth_active])) or "None"
+    hb_active = "Heartbeat" if subscriber.get("wants_heartbeat", 1) else ""
+    active_channels = ", ".join(filter(None, [buys_active, risks_active, sells_active, growth_active, hb_active])) or "None"
 
     kpi1, kpi2 = st.columns(2)
     with kpi1:
         st.markdown(f"""
-        <div class="card" style="padding: 16px; margin-bottom: 20px;">
-            <span style="color: #94a3b8; font-size: 0.85rem; font-weight: 600;">MONITORED WATCHLIST</span>
-            <div style="font-size: 1.8rem; font-weight: 800; color: #f8fafc; margin-top: 4px;">{len(watchlist)} Tickers</div>
+        <div class="card" style="padding: 18px 20px; margin-bottom: 20px; min-height: 95px; display: flex; flex-direction: column; justify-content: center;">
+            <div style="color: #94a3b8; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">MONITORED WATCHLIST</div>
+            <div style="font-size: 1.6rem; font-weight: 800; color: #f8fafc; margin-top: 6px; line-height: 1.2;">{len(watchlist)} Tickers</div>
         </div>
         """, unsafe_allow_html=True)
     with kpi2:
         st.markdown(f"""
-        <div class="card" style="padding: 16px; margin-bottom: 20px;">
-            <span style="color: #94a3b8; font-size: 0.85rem; font-weight: 600;">ACTIVE ALERT CHANNELS</span>
-            <div style="font-size: 1.4rem; font-weight: 700; color: #38df88; margin-top: 8px;">{active_channels}</div>
+        <div class="card" style="padding: 18px 20px; margin-bottom: 20px; min-height: 95px; display: flex; flex-direction: column; justify-content: center;">
+            <div style="color: #94a3b8; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">ACTIVE ALERT CHANNELS</div>
+            <div style="font-size: 1.4rem; font-weight: 700; color: #38df88; margin-top: 6px; line-height: 1.2;">{active_channels}</div>
         </div>
         """, unsafe_allow_html=True)
 
