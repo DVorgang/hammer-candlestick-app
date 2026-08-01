@@ -31,8 +31,20 @@ st.set_page_config(
     page_title="TRadar",
     page_icon="🛰️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
+
+# Completely hide Streamlit Left Sidebar & Toggle Button
+st.markdown("""
+<style>
+    [data-testid="stSidebar"],
+    [data-testid="stSidebarCollapseButton"],
+    button[aria-label="Toggle sidebar"],
+    button[kind="header"] {
+        display: none !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 TR_SPINNER_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle; flex-shrink: 0; margin-right: 4px;"><circle cx="12" cy="12" r="9" fill="none" stroke="#1e293b" stroke-width="3"/><circle cx="12" cy="12" r="9" fill="none" stroke="#38df88" stroke-width="3" stroke-dasharray="14 42" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.75s" repeatCount="indefinite"/></circle></svg>'
 
@@ -1413,19 +1425,7 @@ def render_management_dashboard(subscriber, token):
         if "logged_in_token" in st.session_state:
             del st.session_state.logged_in_token
         st.query_params.clear()
-        st.toast("Logged out successfully.", icon="🔓")
-        st.rerun()
-
-    # Sidebar details
-    with st.sidebar:
-        st.write(f"Logged in as:")
-        st.markdown(f"**{subscriber['email']}**")
-        st.write("---")
-        st.write("🔗 **Personal Access Link**")
-        st.markdown(f"<code style='font-size: 11px; word-break: break-all;'>http://localhost:8501/?token={token}</code>", unsafe_allow_html=True)
-        st.write("Use this link to bypass the OTP login screen on this device.")
-        st.write("---")
-        st.button("🔓 Sign Out / Logout", on_click=logout, use_container_width=True)
+        st.session_state.pending_toast = "Logged out successfully."
 
     watchlist = database.get_watchlist(subscriber["id"])
 
@@ -1437,26 +1437,35 @@ def render_management_dashboard(subscriber, token):
 
     logo_b64 = get_base64_logo()
     
-    if logo_b64:
-        header_html = f"""
-        <div style="margin-top: 5px; margin-bottom: 22px; display: flex; align-items: center; gap: 20px;">
-            <img src="{logo_b64}" style="width: 140px; height: 140px; border-radius: 16px; object-fit: contain; background: #0f172a; padding: 6px; border: 1px solid #334155; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); flex-shrink: 0;">
-            <div>
-                <h1 style="margin: 0; font-size: 2.6rem; font-weight: 800; background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1.1;">TRadar</h1>
-                <span style="color: #94a3b8; font-size: 1.05rem; display: inline-block; margin-top: 8px;">Real-time market scanning & portfolio intelligence for <strong style="color: #60a5fa;">{subscriber["email"]}</strong></span>
+    # Clean Top Navbar & Header Layout
+    h_col1, h_col2 = st.columns([3.5, 1.2])
+    with h_col1:
+        if logo_b64:
+            st.markdown(f"""
+            <div style="margin-top: 5px; margin-bottom: 18px; display: flex; align-items: center; gap: 20px;">
+                <img src="{logo_b64}" style="width: 120px; height: 120px; border-radius: 16px; object-fit: contain; background: #0f172a; padding: 6px; border: 1px solid #334155; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); flex-shrink: 0;">
+                <div>
+                    <h1 style="margin: 0; font-size: 2.6rem; font-weight: 800; background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1.1;">TRadar</h1>
+                    <span style="color: #94a3b8; font-size: 1.05rem; display: inline-block; margin-top: 8px;">Real-time market scanning & portfolio intelligence</span>
+                </div>
             </div>
-        </div>
-        """
-    else:
-        header_html = f"""
-        <div style="margin-top: 5px; margin-bottom: 22px;">
-            <h1 style="margin: 0; font-size: 2.8rem; font-weight: 800; background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">TRadar</h1>
-            <span style="color: #94a3b8; font-size: 1.05rem; display: inline-block; margin-top: 6px;">Real-time market scanning & portfolio intelligence for <strong style="color: #60a5fa;">{subscriber["email"]}</strong></span>
-        </div>
-        """
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style="margin-top: 5px; margin-bottom: 18px;">
+                <h1 style="margin: 0; font-size: 2.8rem; font-weight: 800; background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">TRadar</h1>
+                <span style="color: #94a3b8; font-size: 1.05rem; display: inline-block; margin-top: 6px;">Real-time market scanning & portfolio intelligence</span>
+            </div>
+            """, unsafe_allow_html=True)
 
-    # 1. Clean Top Header
-    st.markdown(header_html, unsafe_allow_html=True)
+    with h_col2:
+        st.markdown(f"""
+        <div style="text-align: right; margin-top: 8px; margin-bottom: 6px;">
+            <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">LOGGED IN AS</span><br>
+            <span style="font-size: 0.92rem; color: #38bdf8; font-weight: 700; word-break: break-all;">{subscriber['email']}</span>
+        </div>
+        """, unsafe_allow_html=True)
+        st.button("🔓 Sign Out / Logout", on_click=logout, use_container_width=True)
 
     # 2. Top KPI Stat Badges Bar
     buys_active = "Buys" if subscriber.get("wants_buys", 1) else ""
