@@ -23,6 +23,7 @@ from ai import analyst_engine
 from notifications import notifier
 importlib.reload(notifier)
 from scanners import daily_scanner, growth_scanner
+from components.loader import TRadarLoader, start_full_screen_loader
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -399,7 +400,13 @@ def main():
     # STATE 4: Landing / Signup & Login state (or Stock Detail preview)
     # ----------------------------------------------------
     if st.session_state.get("selected_ticker_detail"):
-        render_stock_detail_page(st.session_state.selected_ticker_detail, subscriber=None, token=None)
+        tick = st.session_state.selected_ticker_detail
+        with TRadarLoader(
+            title=f"Opening Stock Deep-Dive for {tick}...",
+            subtitle="Downloading real-time price quotes, 50/200-SMA indicators, and 30-day candlestick patterns..."
+        ):
+            time.sleep(0.6)
+        render_stock_detail_page(tick, subscriber=None, token=None)
         return
 
     render_landing_page()
@@ -1313,12 +1320,17 @@ def _render_stock_body(ticker, subscriber, token):
         st.markdown('</div>', unsafe_allow_html=True)
 
 def render_stock_detail_page(ticker, subscriber, token, show_back_button=True):
+    loader = start_full_screen_loader(
+        title=f"Opening Stock Deep-Dive for {ticker}...",
+        subtitle="Downloading real-time price quotes, 50/200-SMA indicators, and 30-day candlestick patterns..."
+    )
     # Top Action Navigation & Refresh Bar
     if show_back_button:
         nav_col1, nav_col2, nav_col3, nav_col4 = st.columns([2, 2, 3, 2])
         with nav_col1:
             if st.button("⬅️ Back to Control Panel", use_container_width=True):
                 st.session_state.selected_ticker_detail = None
+                st.session_state.is_returning_to_panel = True
                 st.rerun()
     else:
         nav_col2, nav_col3, nav_col4 = st.columns([2, 3, 2])
@@ -1372,6 +1384,11 @@ def render_stock_detail_page(ticker, subscriber, token, show_back_button=True):
         def _draw_60():
             _render_stock_body(ticker, subscriber, token)
         _draw_60()
+    else:
+        _render_stock_body(ticker, subscriber, token)
+
+    loader.empty()
+
 @st.cache_data(ttl=15)
 def get_watchlist_quotes(tickers_tuple):
     """
@@ -1445,6 +1462,22 @@ def render_management_dashboard(subscriber, token):
     if st.session_state.get("selected_ticker_detail"):
         render_stock_detail_page(st.session_state.selected_ticker_detail, subscriber, token)
         return
+
+    is_returning = st.session_state.pop("is_returning_to_panel", False)
+    loader = None
+    if is_returning:
+        loader = start_full_screen_loader(
+            title="Returning to Main Control Panel...",
+            subtitle="Loading watchlist quotes & portfolio intelligence dashboard..."
+        )
+
+    _draw_management_dashboard_content(subscriber, token)
+
+    if loader:
+        loader.empty()
+
+
+def _draw_management_dashboard_content(subscriber, token):
 
     # Session state update functions
     def on_pref_change():
