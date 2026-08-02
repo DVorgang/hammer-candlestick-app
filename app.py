@@ -1637,9 +1637,25 @@ def _draw_management_dashboard_content(subscriber, token):
         label_visibility="collapsed",
         key="main_dashboard_nav_radio"
     )
+    # Detect tab switch for smooth animated viewport transition
+    if "last_visited_tab" not in st.session_state:
+        st.session_state.last_visited_tab = selected_nav_tab
+
+    tab_changed = (st.session_state.last_visited_tab != selected_nav_tab)
+    if tab_changed:
+        st.session_state.last_visited_tab = selected_nav_tab
+
     st.session_state.active_main_tab = selected_nav_tab
     st.markdown('<div style="margin-top: 10px;"></div>', unsafe_allow_html=True)
-    
+
+    if tab_changed:
+        tab_loader_placeholder = start_full_screen_loader(
+            title=f"Loading {selected_nav_tab}",
+            subtitle="Downloading real-time market data & position metrics..."
+        )
+    else:
+        tab_loader_placeholder = None
+
     # ----------------------------------------------------
     # TAB 1: WATCHLIST GRID & QUICK ADD
     # ----------------------------------------------------
@@ -2724,7 +2740,8 @@ def _draw_management_dashboard_content(subscriber, token):
             st.write("Erase all alert preferences and delete your watchlist:")
             if st.button("Unsubscribe Completely", type="primary", use_container_width=True):
                 st.query_params.update(unsubscribe="true")
-                st.rerun()
+    if tab_loader_placeholder:
+        tab_loader_placeholder.empty()
 
 if __name__ == "__main__":
     main()
