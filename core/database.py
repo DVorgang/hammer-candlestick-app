@@ -126,6 +126,22 @@ def init_db():
     conn = get_db_connection()
     try:
         with conn:
+            create_paper_trades_table = """
+            CREATE TABLE IF NOT EXISTS paper_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subscriber_id INTEGER NOT NULL,
+                ticker TEXT NOT NULL,
+                entry_date TEXT NOT NULL,
+                entry_price REAL NOT NULL,
+                total_invested REAL NOT NULL,
+                shares REAL NOT NULL,
+                status TEXT DEFAULT 'OPEN',
+                exit_date TEXT,
+                exit_price REAL,
+                realized_pnl REAL,
+                FOREIGN KEY (subscriber_id) REFERENCES subscribers (id) ON DELETE CASCADE
+            );
+            """
             conn.execute(create_subscribers_table)
             conn.execute(create_watchlists_table)
             conn.execute(create_sent_alerts_table)
@@ -133,6 +149,7 @@ def init_db():
             conn.execute(create_scheduler_state_table)
             conn.execute(create_growth_discoveries_table)
             conn.execute(create_heartbeat_discoveries_table)
+            conn.execute(create_paper_trades_table)
             
             # Ensure default row 1 exists in scheduler_state
             conn.execute("INSERT OR IGNORE INTO scheduler_state (id, is_active, start_timestamp) VALUES (1, 0, NULL);")
@@ -1693,6 +1710,158 @@ def get_ticker_heartbeat_blueprint(ticker):
     except sqlite3.Error as e:
         logging.error(f"Database error fetching ticker heartbeat blueprint for {ticker}: {e}")
         return None
+    finally:
+        conn.close()
+
+
+
+# ----------------------------------------------------
+# PAPER PORTFOLIO SIMULATOR FUNCTIONS
+# ----------------------------------------------------
+def add_paper_trade(subscriber_id, ticker, total_invested=None, shares=None, entry_price=None):
+    """
+    Adds a new paper trade for subscriber.
+    Accepts either total_invested ($) or shares quantity.
+    Fetches current market price if entry_price is not provided.
+    """
+    ticker = ticker.strip().upper()
+    if not ticker:
+        return False, "Ticker symbol is required."
+
+    if entry_price is None or float(entry_price) <= 0:
+        try:
+            import yfinance as yf
+            data = yf.Ticker(ticker).history(period="1d")
+            if not data.empty and "Close" in data:
+                entry_price = float(data["Close"].iloc[-1])
+            else:
+                return False, f"Could not fetch current market price for {ticker}."
+        except Exception as e:
+            return False, f"Error fetching price for {ticker}: {e}"
+
+    entry_price = float(entry_price)
+
+    if shares is not None and float(shares) > 0:
+        shares = float(shares)
+        total_invested = shares * entry_price
+    elif total_invested is not None and float(total_invested) > 0:
+        total_invested = float(total_invested)
+        shares = total_invested / entry_price
+    else:
+        return False, "Please specify a valid total dollar investment or share quantity."
+
+    entry_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute("""
+                INSERT INTO paper_trades (subscriber_id, ticker, entry_date, entry_price, total_invested, shares, status)
+                VALUES (?, ?, ?, ?, ?, ?, 'OPEN');
+            """, (subscriber_id, ticker, entry_date, entry_price, total_invested, shares))
+        return True, f"Successfully added paper position: {shares:.3f} shares of {ticker} @ ${entry_price:,.2f} (${total_invested:,.2f})!"
+    except sqlite3.Error as e:
+        logging.error(f"Database error adding paper trade: {e}")
+        return False, f"Database error: {e}"
+    finally:
+        conn.close()
+
+def get_open_paper_trades(subscriber_id):
+    """
+    Returns list of open paper trades for subscriber.
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        rows = cursor.execute("""
+            SELECT id, ticker, entry_date, entry_price, total_invested, shares, status
+            FROM paper_trades
+            WHERE subscriber_id = ? AND status = 'OPEN'
+            ORDER BY id DESC;
+        """, (subscriber_id,)).fetchall()
+        return [dict(r) for r in rows]
+    except sqlite3.Error as e:
+        logging.error(f"Database error getting open paper trades: {e}")
+        return []
+    finally:
+        conn.close()
+
+def get_closed_paper_trades(subscriber_id):
+    """
+    Returns list of closed paper trades for subscriber.
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        rows = cursor.execute("""
+            SELECT id, ticker, entry_date, entry_price, total_invested, shares, status, exit_date, exit_price, realized_pnl
+            FROM paper_trades
+            WHERE subscriber_id = ? AND status = 'CLOSED'
+            ORDER BY exit_date DESC, id DESC;
+        """, (subscriber_id,)).fetchall()
+        return [dict(r) for r in rows]
+    except sqlite3.Error as e:
+        logging.error(f"Database error getting closed paper trades: {e}")
+        return []
+    finally:
+        conn.close()
+
+def close_paper_trade(trade_id, exit_price=None):
+    """
+    Closes an open paper trade, recording exit date, exit price, and realized profit/loss.
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        row = cursor.execute("SELECT ticker, entry_price, shares, total_invested FROM paper_trades WHERE id = ?;", (trade_id,)).fetchone()
+        if not row:
+            return False, "Trade not found."
+
+        ticker = row["ticker"]
+        entry_price = float(row["entry_price"])
+        shares = float(row["shares"])
+
+        if exit_price is None or float(exit_price) <= 0:
+            try:
+                import yfinance as yf
+                data = yf.Ticker(ticker).history(period="1d")
+                if not data.empty and "Close" in data:
+                    exit_price = float(data["Close"].iloc[-1])
+                else:
+                    return False, f"Could not fetch current market exit price for {ticker}."
+            except Exception as e:
+                return False, f"Error fetching exit price for {ticker}: {e}"
+
+        exit_price = float(exit_price)
+        exit_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+        current_val = exit_price * shares
+        realized_pnl = current_val - float(row["total_invested"])
+
+        with conn:
+            conn.execute("""
+                UPDATE paper_trades
+                SET status = 'CLOSED', exit_date = ?, exit_price = ?, realized_pnl = ?
+                WHERE id = ?;
+            """, (exit_date, exit_price, realized_pnl, trade_id))
+        return True, f"Closed paper position in {ticker} with P&L: {'+' if realized_pnl>=0 else ''}${realized_pnl:,.2f}"
+    except sqlite3.Error as e:
+        logging.error(f"Database error closing paper trade {trade_id}: {e}")
+        return False, f"Database error: {e}"
+    finally:
+        conn.close()
+
+def delete_paper_trade(trade_id):
+    """
+    Deletes a paper trade from database.
+    """
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute("DELETE FROM paper_trades WHERE id = ?;", (trade_id,))
+        return True
+    except sqlite3.Error as e:
+        logging.error(f"Database error deleting paper trade {trade_id}: {e}")
+        return False
     finally:
         conn.close()
 

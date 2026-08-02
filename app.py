@@ -24,6 +24,9 @@ from notifications import notifier
 importlib.reload(notifier)
 from scanners import daily_scanner, growth_scanner
 from components.loader import TRadarLoader, start_full_screen_loader
+from components import paper_trading_tab
+importlib.reload(paper_trading_tab)
+from components.paper_trading_tab import render_paper_trading_tab
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -1498,10 +1501,8 @@ def _draw_management_dashboard_content(subscriber, token):
 
     watchlist = database.get_watchlist(subscriber["id"])
 
-    # Render pending notification banner if present
+    # Clear any pending notification flags without popup banners
     if st.session_state.get("pending_toast"):
-        st.success(f"✅ {st.session_state.pending_toast}")
-        st.toast(st.session_state.pending_toast, icon="⭐")
         st.session_state.pending_toast = None
 
     logo_b64 = get_base64_logo()
@@ -1560,17 +1561,89 @@ def _draw_management_dashboard_content(subscriber, token):
         </div>
         """, unsafe_allow_html=True)
 
-    # Main Dashboard Tabs (Clean 3-Tab Layout)
-    tab_watchlist, tab_search, tab_hub = st.tabs([
+    # Main Dashboard Persistent Navigation
+    tab_names = [
         "📋 Watchlist", 
+        "🎮 Paper Portfolio",
         "🔍 Stock Search & Deep-Dive",
         "⚡ Scanner, Alerts & Backtesting"
-    ])
+    ]
+    if "active_main_tab" not in st.session_state:
+        st.session_state.active_main_tab = "📋 Watchlist"
+
+    st.markdown("""
+    <style>
+    div[data-testid="stRadio"]:has(input[key="main_dashboard_nav_radio"]),
+    div[data-testid="stRadio"] {
+        margin-bottom: 20px;
+    }
+    div[data-testid="stRadio"] > div[role="radiogroup"] {
+        display: flex !important;
+        flex-direction: row !important;
+        gap: 28px !important;
+        background: transparent !important;
+        padding: 0 !important;
+        border-radius: 0 !important;
+        border: none !important;
+        border-bottom: 1px solid #1e293b !important;
+        width: 100% !important;
+    }
+    /* Completely hide radio dots/circles */
+    div[data-testid="stRadio"] [data-baseweb="radio"] > div:first-child,
+    div[data-testid="stRadio"] label > div:first-child,
+    div[data-testid="stRadio"] input[type="radio"] {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        opacity: 0 !important;
+        visibility: hidden !important;
+    }
+    div[data-testid="stRadio"] > div[role="radiogroup"] > label {
+        background: transparent !important;
+        border-radius: 0 !important;
+        padding: 8px 4px 12px 4px !important;
+        color: #94a3b8 !important;
+        font-weight: 600 !important;
+        font-size: 0.96rem !important;
+        border: none !important;
+        border-bottom: 3px solid transparent !important;
+        cursor: pointer !important;
+        transition: all 0.2s ease !important;
+        margin-bottom: -1px !important;
+    }
+    div[data-testid="stRadio"] > div[role="radiogroup"] > label:hover {
+        color: #f8fafc !important;
+        border-bottom: 3px solid #3b82f6 !important;
+        background: transparent !important;
+    }
+    div[data-testid="stRadio"] > div[role="radiogroup"] label:has(input:checked) {
+        background: transparent !important;
+        color: #3b82f6 !important;
+        font-weight: 700 !important;
+        border: none !important;
+        border-bottom: 3px solid #3b82f6 !important;
+        box-shadow: none !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    selected_nav_tab = st.radio(
+        "Navigation Tabs",
+        options=tab_names,
+        index=tab_names.index(st.session_state.active_main_tab) if st.session_state.active_main_tab in tab_names else 0,
+        horizontal=True,
+        label_visibility="collapsed",
+        key="main_dashboard_nav_radio"
+    )
+    st.session_state.active_main_tab = selected_nav_tab
+    st.markdown('<div style="margin-top: 10px;"></div>', unsafe_allow_html=True)
     
     # ----------------------------------------------------
     # TAB 1: WATCHLIST GRID & QUICK ADD
     # ----------------------------------------------------
-    with tab_watchlist:
+    if selected_nav_tab == "📋 Watchlist":
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown('<div class="card-title">Manage Watchlist</div>', unsafe_allow_html=True)
         
@@ -1688,9 +1761,15 @@ def _draw_management_dashboard_content(subscriber, token):
         st.markdown('</div>', unsafe_allow_html=True)
 
     # ----------------------------------------------------
-    # TAB 2: INSTANT STOCK SEARCH & DEEP-DIVE ANALYSIS
+    # TAB 2: PAPER PORTFOLIO SIMULATOR
     # ----------------------------------------------------
-    with tab_search:
+    elif selected_nav_tab == "🎮 Paper Portfolio":
+        render_paper_trading_tab(subscriber, token)
+
+    # ----------------------------------------------------
+    # TAB 3: INSTANT STOCK SEARCH & DEEP-DIVE ANALYSIS
+    # ----------------------------------------------------
+    elif selected_nav_tab == "🔍 Stock Search & Deep-Dive":
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown('<div class="card-title">🔍 Search Any Stock for Instant Deep-Dive Analysis</div>', unsafe_allow_html=True)
         st.write("Perform comprehensive financial, indicator, and technical backtest analysis on any US stock ticker instantly (no watchlist required):")
@@ -1721,8 +1800,6 @@ def _draw_management_dashboard_content(subscriber, token):
                 st.session_state.search_tab_ticker = None
                 st.rerun()
 
-
-
         st.markdown('</div>', unsafe_allow_html=True)
         st.markdown('<div style="margin-top: 15px;"></div>', unsafe_allow_html=True)
 
@@ -1733,12 +1810,7 @@ def _draw_management_dashboard_content(subscriber, token):
             # Render Full Stock Detail View (without redundant Back button)
             render_stock_detail_page(active_search_ticker, subscriber, token, show_back_button=False)
 
-
-
-    # ----------------------------------------------------
-    # TAB 3: SCANNER, ALERTS & BACKTESTING
-    # ----------------------------------------------------
-    with tab_hub:
+    else:
 
 
 
