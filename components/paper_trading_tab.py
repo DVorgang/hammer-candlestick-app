@@ -85,6 +85,12 @@ def render_paper_trading_tab(subscriber, token):
             st.error(msg)
 
     account_labels = [account["account_label"] for account in accounts]
+    pending_active_label = st.session_state.get("pending_active_paper_account_label")
+    if pending_active_label:
+        if pending_active_label in account_labels:
+            st.session_state.active_paper_account_label = pending_active_label
+        del st.session_state["pending_active_paper_account_label"]
+
     active_label = st.session_state.get("active_paper_account_label")
     if active_label not in account_labels:
         active_label = account_labels[0]
@@ -146,7 +152,7 @@ def render_paper_trading_tab(subscriber, token):
                 if account["account_label"] != selected_account["account_label"]
             ]
             if remaining_accounts:
-                st.session_state.active_paper_account_label = remaining_accounts[0]["account_label"]
+                st.session_state.pending_active_paper_account_label = remaining_accounts[0]["account_label"]
             st.session_state.pending_toast = msg
             st.rerun()
         else:
