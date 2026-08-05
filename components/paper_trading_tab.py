@@ -142,7 +142,7 @@ def render_paper_trading_tab(subscriber, token):
     </style>
     """, unsafe_allow_html=True)
 
-    selector_col, delete_col = st.columns([4, 1.2])
+    selector_col, rename_action_col, delete_col = st.columns([3.3, 0.9, 1.2])
     with selector_col:
         selected_label = st.radio(
             "Paper Portfolio",
@@ -151,6 +151,12 @@ def render_paper_trading_tab(subscriber, token):
             horizontal=True,
             label_visibility="collapsed",
             key="active_paper_account_label"
+        )
+    with rename_action_col:
+        rename_requested = st.button(
+            "Rename Portfolio",
+            use_container_width=True,
+            key="btn_show_rename_paper_account"
         )
     with delete_col:
         st.markdown('<span id="paper_account_delete_top_marker"></span>', unsafe_allow_html=True)
@@ -163,35 +169,64 @@ def render_paper_trading_tab(subscriber, token):
 
     selected_account = next(account for account in accounts if account["account_label"] == selected_label)
     rename_input_key = f"rename_paper_account_input_{selected_account['id']}"
-    if st.session_state.get("clear_rename_paper_account_id") == selected_account["id"]:
-        st.session_state[rename_input_key] = ""
-        del st.session_state["clear_rename_paper_account_id"]
+    rename_state_key = "renaming_paper_account_label"
 
-    rename_col, rename_btn_col = st.columns([4, 1.2])
-    with rename_col:
-        rename_label = st.text_input(
-            "Rename Portfolio",
-            placeholder=f"Rename {selected_account['account_label']}...",
-            label_visibility="collapsed",
-            key=rename_input_key
-        )
-    with rename_btn_col:
-        rename_account = st.button("Rename", use_container_width=True, key=f"btn_rename_paper_account_{selected_account['id']}")
+    if rename_requested:
+        st.session_state[rename_state_key] = selected_account["account_label"]
+        st.session_state.pending_rename_paper_account_prefill = {
+            "key": rename_input_key,
+            "value": selected_account["account_label"]
+        }
+        st.rerun()
 
-    if rename_account:
-        success, msg = database.rename_paper_account(
-            subscriber["id"],
-            selected_account["account_label"],
-            rename_label
-        )
-        if success:
-            new_label = rename_label.strip()[:60]
-            st.session_state.pending_active_paper_account_label = new_label
-            st.session_state.clear_rename_paper_account_id = selected_account["id"]
-            st.session_state.pending_toast = msg
+    rename_target_label = st.session_state.get(rename_state_key)
+    if rename_target_label not in account_labels:
+        rename_target_label = None
+        st.session_state.pop(rename_state_key, None)
+
+    if rename_target_label:
+        target_account = next(account for account in accounts if account["account_label"] == rename_target_label)
+        rename_input_key = f"rename_paper_account_input_{target_account['id']}"
+        pending_rename_prefill = st.session_state.get("pending_rename_paper_account_prefill")
+        if pending_rename_prefill and pending_rename_prefill.get("key") == rename_input_key:
+            st.session_state[rename_input_key] = pending_rename_prefill.get("value", rename_target_label)
+            del st.session_state["pending_rename_paper_account_prefill"]
+
+        with st.form(f"rename_paper_account_form_{target_account['id']}", clear_on_submit=False):
+            st.markdown(f"""
+            <div style="color:#bae6fd; font-weight:800; margin-bottom:4px;">Rename portfolio</div>
+            <div style="color:#cbd5e1; font-size:0.9rem; margin-bottom:14px;">Editing <strong>{rename_target_label}</strong>.</div>
+            """, unsafe_allow_html=True)
+            rename_col, save_col, cancel_col = st.columns([3.4, 0.9, 0.9])
+            with rename_col:
+                rename_label = st.text_input(
+                    "New Portfolio Name",
+                    label_visibility="collapsed",
+                    key=rename_input_key
+                )
+            with save_col:
+                save_rename = st.form_submit_button("Save Name", type="primary", use_container_width=True)
+            with cancel_col:
+                cancel_rename = st.form_submit_button("Cancel", use_container_width=True)
+
+        if cancel_rename:
+            st.session_state.pop(rename_state_key, None)
             st.rerun()
-        else:
-            st.error(msg)
+
+        if save_rename:
+            success, msg = database.rename_paper_account(
+                subscriber["id"],
+                rename_target_label,
+                rename_label
+            )
+            if success:
+                new_label = rename_label.strip()[:60]
+                st.session_state.pending_active_paper_account_label = new_label
+                st.session_state.pop(rename_state_key, None)
+                st.session_state.pending_toast = msg
+                st.rerun()
+            else:
+                st.error(msg)
 
     if delete_account:
         st.session_state.confirm_delete_paper_account_label = selected_account["account_label"]
@@ -381,29 +416,7 @@ def _render_paper_account(subscriber, account):
     if not open_trades and not closed_trades:
         st.markdown('<div class="card" style="text-align: center; padding: 24px;">', unsafe_allow_html=True)
         st.markdown('<div style="font-size: 1.1rem; font-weight: 700; color: #f8fafc; margin-bottom: 8px;">Your Paper Portfolio is currently empty</div>', unsafe_allow_html=True)
-        st.write("Use the form above to add custom positions, or click a sample paper trade below:")
-
-        st.markdown('<div style="margin-top: 14px;"></div>', unsafe_allow_html=True)
-        qp1, qp2, qp3 = st.columns(3)
-        with qp1:
-            if st.button("Quick Paper $1,000 NVDA", key=f"{key_prefix}_quick_p_nvda", use_container_width=True):
-                database.add_paper_trade(subscriber["id"], "NVDA", total_invested=1000.0, account_label=account_label)
-                st.session_state.active_main_tab = "🎮 Paper Portfolio"
-                st.session_state.pending_toast = "Added Quick $1,000 NVDA paper position!"
-                st.rerun()
-        with qp2:
-            if st.button("Quick Paper $2,500 AMD", key=f"{key_prefix}_quick_p_amd", use_container_width=True):
-                database.add_paper_trade(subscriber["id"], "AMD", total_invested=2500.0, account_label=account_label)
-                st.session_state.active_main_tab = "🎮 Paper Portfolio"
-                st.session_state.pending_toast = "Added Quick $2,500 AMD paper position!"
-                st.rerun()
-        with qp3:
-            if st.button("Quick Paper $5,000 PLTR", key=f"{key_prefix}_quick_p_pltr", use_container_width=True):
-                database.add_paper_trade(subscriber["id"], "PLTR", total_invested=5000.0, account_label=account_label)
-                st.session_state.active_main_tab = "🎮 Paper Portfolio"
-                st.session_state.pending_toast = "Added Quick $5,000 PLTR paper position!"
-                st.rerun()
-
+        st.write("Use the form above to add a custom position to this portfolio.")
         st.markdown('</div>', unsafe_allow_html=True)
         return
 
