@@ -7,6 +7,7 @@ Today's Change %, Portfolio Weight %, Entry Date, and Ticker/Sector Asset Alloca
 
 import streamlit as st
 import plotly.graph_objects as go
+import time
 from datetime import datetime
 import yfinance as yf
 from core import database
@@ -121,6 +122,23 @@ def render_paper_trading_tab(subscriber, token):
     div[data-testid="stElementContainer"]:has(#paper_account_delete_top_marker) {
         display: none !important;
     }
+    div[data-testid="stElementContainer"]:has(#paper_account_confirm_delete_marker)
+        + div[data-testid="stElementContainer"] div[data-testid="stButton"] button {
+        background: #dc2626 !important;
+        border: 1px solid #ef4444 !important;
+        color: #ffffff !important;
+        height: 36px !important;
+        font-weight: 800 !important;
+    }
+    div[data-testid="stElementContainer"]:has(#paper_account_confirm_delete_marker)
+        + div[data-testid="stElementContainer"] div[data-testid="stButton"] button:hover {
+        background: #b91c1c !important;
+        border-color: #fca5a5 !important;
+        color: #ffffff !important;
+    }
+    div[data-testid="stElementContainer"]:has(#paper_account_confirm_delete_marker) {
+        display: none !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -145,18 +163,62 @@ def render_paper_trading_tab(subscriber, token):
 
     selected_account = next(account for account in accounts if account["account_label"] == selected_label)
     if delete_account:
-        success, msg = database.delete_paper_account(subscriber["id"], selected_account["account_label"])
-        if success:
-            remaining_accounts = [
-                account for account in accounts
-                if account["account_label"] != selected_account["account_label"]
-            ]
-            if remaining_accounts:
-                st.session_state.pending_active_paper_account_label = remaining_accounts[0]["account_label"]
-            st.session_state.pending_toast = msg
+        st.session_state.confirm_delete_paper_account_label = selected_account["account_label"]
+        st.rerun()
+
+    confirm_delete_label = st.session_state.get("confirm_delete_paper_account_label")
+    if confirm_delete_label not in account_labels:
+        confirm_delete_label = None
+        st.session_state.pop("confirm_delete_paper_account_label", None)
+
+    if confirm_delete_label:
+        st.markdown(f"""
+        <div class="card" style="border-color:#ef4444; background:rgba(127, 29, 29, 0.18);">
+            <div style="color:#fecaca; font-weight:800; margin-bottom:4px;">Confirm portfolio deletion</div>
+            <div style="color:#cbd5e1; font-size:0.9rem;">This will permanently delete <strong>{confirm_delete_label}</strong> and every paper trade inside it.</div>
+        </div>
+        """, unsafe_allow_html=True)
+        cancel_col, confirm_col = st.columns([4, 1.2])
+        with cancel_col:
+            cancel_delete = st.button("Cancel", use_container_width=True, key="btn_cancel_delete_paper_account")
+        with confirm_col:
+            st.markdown('<span id="paper_account_confirm_delete_marker"></span>', unsafe_allow_html=True)
+            confirm_delete = st.button("Confirm Delete", use_container_width=True, key="btn_confirm_delete_paper_account")
+
+        if cancel_delete:
+            st.session_state.pop("confirm_delete_paper_account_label", None)
             st.rerun()
-        else:
-            st.error(msg)
+
+        if confirm_delete:
+            delete_status = st.empty()
+            delete_progress = st.progress(0)
+            for pct, label in [
+                (25, "Preparing delete..."),
+                (60, "Removing paper trades..."),
+                (100, "Deleting portfolio...")
+            ]:
+                delete_status.markdown(f"""
+                <div class="card" style="border-color:#f59e0b; background:rgba(245, 158, 11, 0.12);">
+                    <div style="color:#fbbf24; font-weight:800;">{label}</div>
+                    <div style="color:#cbd5e1; font-size:0.9rem;">{confirm_delete_label}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                delete_progress.progress(pct)
+                time.sleep(0.35)
+
+            success, msg = database.delete_paper_account(subscriber["id"], confirm_delete_label)
+            if success:
+                remaining_accounts = [
+                    account for account in accounts
+                    if account["account_label"] != confirm_delete_label
+                ]
+                if remaining_accounts:
+                    st.session_state.pending_active_paper_account_label = remaining_accounts[0]["account_label"]
+                st.session_state.pop("confirm_delete_paper_account_label", None)
+                st.session_state.pending_toast = msg
+                st.rerun()
+            else:
+                st.error(msg)
 
     _render_paper_account(subscriber, selected_account)
 
