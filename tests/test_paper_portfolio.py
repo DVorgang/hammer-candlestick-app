@@ -93,6 +93,26 @@ class TestPaperPortfolio(unittest.TestCase):
         self.assertNotIn("Delete Me", [a["account_label"] for a in accounts])
         self.assertEqual(database.get_open_paper_trades(999, account_label="Delete Me"), [])
 
+    def test_rename_paper_account_moves_its_trades(self):
+        success, msg = database.add_paper_account(999, "Old Name")
+        self.assertTrue(success, msg)
+        trade_success, trade_msg = database.add_paper_trade(
+            999, "MSFT", total_invested=1000.0, entry_price=100.0, account_label="Old Name"
+        )
+        self.assertTrue(trade_success, trade_msg)
+
+        rename_success, rename_msg = database.rename_paper_account(999, "Old Name", "New Name")
+        self.assertTrue(rename_success, rename_msg)
+
+        accounts = database.get_paper_accounts(999)
+        self.assertNotIn("Old Name", [a["account_label"] for a in accounts])
+        self.assertIn("New Name", [a["account_label"] for a in accounts])
+        self.assertEqual(database.get_open_paper_trades(999, account_label="Old Name"), [])
+        self.assertEqual(
+            [t["ticker"] for t in database.get_open_paper_trades(999, account_label="New Name")],
+            ["MSFT"]
+        )
+
     def test_close_paper_trade(self):
         database.add_paper_trade(999, "AMD", 2000.0, entry_price=100.0)
         open_trades = database.get_open_paper_trades(999)

@@ -1882,6 +1882,57 @@ def delete_paper_account(subscriber_id, account_label):
         conn.close()
 
 
+def rename_paper_account(subscriber_id, old_account_label, new_account_label):
+    """
+    Renames a paper trading account and moves its existing paper trades to the new label.
+    """
+    old_account_label = _clean_paper_account_label(old_account_label)
+    new_account_label = _clean_paper_account_label(new_account_label)
+    if not old_account_label or not new_account_label:
+        return False, "Paper portfolio name is required."
+    if old_account_label == new_account_label:
+        return False, "Please enter a new portfolio name."
+
+    conn = get_db_connection()
+    try:
+        with conn:
+            _ensure_default_paper_accounts(conn, subscriber_id)
+            existing = conn.execute("""
+                SELECT id
+                FROM paper_accounts
+                WHERE subscriber_id = ? AND account_label = ?;
+            """, (subscriber_id, old_account_label)).fetchone()
+            if not existing:
+                return False, "Paper portfolio not found."
+
+            duplicate = conn.execute("""
+                SELECT id
+                FROM paper_accounts
+                WHERE subscriber_id = ? AND account_label = ?;
+            """, (subscriber_id, new_account_label)).fetchone()
+            if duplicate:
+                return False, "That paper portfolio name already exists."
+
+            conn.execute("""
+                UPDATE paper_accounts
+                SET account_label = ?
+                WHERE subscriber_id = ? AND account_label = ?;
+            """, (new_account_label, subscriber_id, old_account_label))
+            conn.execute("""
+                UPDATE paper_trades
+                SET account_label = ?
+                WHERE subscriber_id = ? AND account_label = ?;
+            """, (new_account_label, subscriber_id, old_account_label))
+        return True, f"Renamed paper portfolio to: {new_account_label}"
+    except sqlite3.IntegrityError:
+        return False, "That paper portfolio name already exists."
+    except sqlite3.Error as e:
+        logging.error(f"Database error renaming paper account: {e}")
+        return False, f"Database error: {e}"
+    finally:
+        conn.close()
+
+
 def add_paper_trade(subscriber_id, ticker, total_invested=None, shares=None, entry_price=None, account_label="Account 1"):
     """
     Adds a new paper trade for subscriber.

@@ -367,6 +367,10 @@ def main():
         
     # Check session state token
     session_token = st.session_state.get("logged_in_token")
+
+    if st.session_state.get("auth_state") == "loading_dashboard":
+        render_dashboard_loading_page()
+        return
     
     # ----------------------------------------------------
     # STATE 1: Unsubscribe Confirmation Flow
@@ -413,6 +417,26 @@ def main():
         return
 
     render_landing_page()
+
+def render_dashboard_loading_page():
+    pending_token = st.session_state.get("pending_login_token")
+    if not pending_token:
+        st.session_state.auth_state = None
+        st.rerun()
+
+    with TRadarLoader(
+        title="Opening TRadar dashboard...",
+        subtitle="Loading watchlist, paper portfolios, alert channels, and live market context..."
+    ):
+        time.sleep(1.0)
+
+    st.session_state.logged_in_token = pending_token
+    st.session_state.active_main_tab = "📋 Watchlist"
+    st.session_state.last_visited_tab = "📋 Watchlist"
+    del st.session_state["pending_login_token"]
+    st.session_state.auth_state = None
+    st.query_params.update(token=pending_token)
+    st.rerun()
 
 def render_landing_page():
     logo_b64 = get_base64_logo()
@@ -477,13 +501,13 @@ Detects dormant <em>"Sleeping Giant"</em> stocks consolidating in ultra-tight vo
         
         # TAB: SIGN IN
         with tab_login:
-            st.markdown("Enter your email to receive a secure 6-digit login code:")
+            st.markdown("Enter your email to open your TRadar dashboard:")
             st.markdown("""<div style="margin-top: 6px; margin-bottom: 12px; padding: 8px 10px; background: rgba(15, 23, 42, 0.6); border-radius: 6px; border: 1px solid #334155; color: #94a3b8; font-size: 11.5px; text-align: center;">
-🔒 <strong>Passwordless Security</strong> — No passwords stored. Secure 6-digit access codes sent directly to your inbox.
+🔑 <strong>Email Login</strong> — Your dashboard, watchlist, settings, and paper portfolios are tied to your registered email.
 </div>""", unsafe_allow_html=True)
             with st.form("login_form"):
                 login_email = st.text_input("Email Address", key="login_email_input").strip().lower()
-                login_submit = st.form_submit_button("Send Code")
+                login_submit = st.form_submit_button("Open Dashboard")
                 
                 if login_submit:
                     if not login_email or "@" not in login_email:
@@ -494,12 +518,11 @@ Detects dormant <em>"Sleeping Giant"</em> stocks consolidating in ultra-tight vo
                         if not sub:
                             st.error("This email is not registered yet. Please click the 'Register' tab to sign up first.")
                         else:
-                            # Generate OTP
-                            otp = database.generate_otp(login_email)
-                            st.session_state.auth_state = "verify_otp"
-                            st.session_state.auth_email = login_email
-                            st.session_state.auth_otp_intercepted = otp
-                            st.toast("Code generated!", icon="🔑")
+                            st.session_state.pending_login_token = sub["management_token"]
+                            st.session_state.auth_state = "loading_dashboard"
+                            st.session_state.auth_email = None
+                            st.session_state.auth_otp_intercepted = None
+                            st.toast("Dashboard opened!")
                             st.rerun()
                             
         # TAB: REGISTER
@@ -528,7 +551,7 @@ Detects dormant <em>"Sleeping Giant"</em> stocks consolidating in ultra-tight vo
                 wants_growth = st.checkbox("🚀 Growth & Contract Catalysts (High Volume + Groq AI Score ≥ 7/10)", value=True, key="reg_wants_growth")
                 wants_heartbeat = st.checkbox("💓 Heartbeat Volatility Expansion (Low-Volatility Squeeze + QRS Volume Pulse)", value=True, key="reg_wants_heartbeat")
                 
-                reg_submit = st.form_submit_button("Create Account & Send Code")
+                reg_submit = st.form_submit_button("Create Account")
                 
                 if reg_submit:
                     if not reg_email or "@" not in reg_email:
@@ -541,7 +564,7 @@ Detects dormant <em>"Sleeping Giant"</em> stocks consolidating in ultra-tight vo
                             try:
                                 tickers = [t.strip().upper() for t in watchlist_input.split(",") if t.strip()]
                                 # Create subscriber profile
-                                database.create_subscriber(
+                                subscriber_id, token = database.create_subscriber(
                                     email=reg_email,
                                     wants_buys=1 if wants_buys else 0,
                                     wants_risks=1 if wants_risks else 0,
@@ -550,12 +573,11 @@ Detects dormant <em>"Sleeping Giant"</em> stocks consolidating in ultra-tight vo
                                     wants_heartbeat=1 if wants_heartbeat else 0,
                                     initial_tickers=tickers
                                 )
-                                # Generate OTP
-                                otp = database.generate_otp(reg_email)
-                                st.session_state.auth_state = "verify_otp"
-                                st.session_state.auth_email = reg_email
-                                st.session_state.auth_otp_intercepted = otp
-                                st.toast("Verification code sent!", icon="✉️")
+                                st.session_state.pending_login_token = token
+                                st.session_state.auth_state = "loading_dashboard"
+                                st.session_state.auth_email = None
+                                st.session_state.auth_otp_intercepted = None
+                                st.toast("Account created!")
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Error creating account: {e}")
@@ -1496,6 +1518,9 @@ def _draw_management_dashboard_content(subscriber, token):
     def logout():
         if "logged_in_token" in st.session_state:
             del st.session_state.logged_in_token
+        for key in ["active_main_tab", "last_visited_tab", "main_dashboard_nav_radio"]:
+            if key in st.session_state:
+                del st.session_state[key]
         st.query_params.clear()
         st.session_state.pending_toast = "Logged out successfully."
 

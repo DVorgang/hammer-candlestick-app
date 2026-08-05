@@ -162,6 +162,37 @@ def render_paper_trading_tab(subscriber, token):
         )
 
     selected_account = next(account for account in accounts if account["account_label"] == selected_label)
+    rename_input_key = f"rename_paper_account_input_{selected_account['id']}"
+    if st.session_state.get("clear_rename_paper_account_id") == selected_account["id"]:
+        st.session_state[rename_input_key] = ""
+        del st.session_state["clear_rename_paper_account_id"]
+
+    rename_col, rename_btn_col = st.columns([4, 1.2])
+    with rename_col:
+        rename_label = st.text_input(
+            "Rename Portfolio",
+            placeholder=f"Rename {selected_account['account_label']}...",
+            label_visibility="collapsed",
+            key=rename_input_key
+        )
+    with rename_btn_col:
+        rename_account = st.button("Rename", use_container_width=True, key=f"btn_rename_paper_account_{selected_account['id']}")
+
+    if rename_account:
+        success, msg = database.rename_paper_account(
+            subscriber["id"],
+            selected_account["account_label"],
+            rename_label
+        )
+        if success:
+            new_label = rename_label.strip()[:60]
+            st.session_state.pending_active_paper_account_label = new_label
+            st.session_state.clear_rename_paper_account_id = selected_account["id"]
+            st.session_state.pending_toast = msg
+            st.rerun()
+        else:
+            st.error(msg)
+
     if delete_account:
         st.session_state.confirm_delete_paper_account_label = selected_account["account_label"]
         st.rerun()
