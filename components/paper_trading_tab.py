@@ -38,17 +38,138 @@ def get_ticker_sector(ticker):
 
 
 def render_paper_trading_tab(subscriber, token):
-    # Pre-instantiation session state reset for form fields
-    if st.session_state.get("clear_paper_inputs"):
-        st.session_state["paper_ticker_in"] = ""
-        st.session_state["paper_amt_in"] = 1000.0
-        st.session_state["paper_shares_in"] = 12.0
-        st.session_state["paper_custom_price_in"] = 100.0
-        del st.session_state["clear_paper_inputs"]
-
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown('<div class="card-title">Paper Trading Portfolio Simulator</div>', unsafe_allow_html=True)
     st.write("Manually enter paper trades with live position tracking, sector & ticker allocation charts, and realized P&L logs:")
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('<div style="margin-top: 14px;"></div>', unsafe_allow_html=True)
+
+    if st.session_state.get("clear_new_paper_account_label"):
+        st.session_state["new_paper_account_label"] = ""
+        del st.session_state["clear_new_paper_account_label"]
+
+    accounts = database.get_paper_accounts(subscriber["id"])
+    can_add_account = len(accounts) < database.MAX_PAPER_ACCOUNTS
+
+    account_name_col, account_btn_col = st.columns([4, 1.2])
+    with account_name_col:
+        new_account_label = st.text_input(
+            "Portfolio Name",
+            placeholder="e.g. Swing Trades, Long-Term Ideas",
+            label_visibility="collapsed",
+            key="new_paper_account_label",
+            disabled=not can_add_account
+        )
+    with account_btn_col:
+        add_account = st.button(
+            "Create Portfolio",
+            type="primary",
+            use_container_width=True,
+            key="btn_add_paper_account",
+            disabled=not can_add_account
+        )
+
+    if not can_add_account:
+        st.markdown(
+            f'<div style="color:#94a3b8; font-size:0.82rem; margin-top:6px;">Portfolio limit reached ({len(accounts)}/{database.MAX_PAPER_ACCOUNTS}).</div>',
+            unsafe_allow_html=True
+        )
+
+    if add_account:
+        success, msg = database.add_paper_account(subscriber["id"], new_account_label)
+        if success:
+            st.session_state["clear_new_paper_account_label"] = True
+            st.session_state.pending_toast = msg
+            st.rerun()
+        else:
+            st.error(msg)
+
+    account_labels = [account["account_label"] for account in accounts]
+    active_label = st.session_state.get("active_paper_account_label")
+    if active_label not in account_labels:
+        active_label = account_labels[0]
+        st.session_state.active_paper_account_label = active_label
+
+    st.markdown("""
+    <style>
+    div[data-testid="stElementContainer"]:has(#paper_account_delete_top_marker)
+        + div[data-testid="stElementContainer"] div[data-testid="stButton"] button {
+        background: #dc2626 !important;
+        border: 1px solid #ef4444 !important;
+        color: #ffffff !important;
+        height: 36px !important;
+        font-weight: 800 !important;
+    }
+    div[data-testid="stElementContainer"]:has(#paper_account_delete_top_marker)
+        + div[data-testid="stElementContainer"] div[data-testid="stButton"] button:hover {
+        background: #b91c1c !important;
+        border-color: #fca5a5 !important;
+        color: #ffffff !important;
+    }
+    div[data-testid="stElementContainer"]:has(#paper_account_delete_top_marker)
+        + div[data-testid="stElementContainer"] div[data-testid="stButton"] button:disabled {
+        background: rgba(71, 85, 105, 0.35) !important;
+        border-color: #475569 !important;
+        color: #94a3b8 !important;
+    }
+    div[data-testid="stElementContainer"]:has(#paper_account_delete_top_marker) {
+        display: none !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    selector_col, delete_col = st.columns([4, 1.2])
+    with selector_col:
+        selected_label = st.radio(
+            "Paper Portfolio",
+            account_labels,
+            index=account_labels.index(active_label),
+            horizontal=True,
+            label_visibility="collapsed",
+            key="active_paper_account_label"
+        )
+    with delete_col:
+        st.markdown('<span id="paper_account_delete_top_marker"></span>', unsafe_allow_html=True)
+        delete_account = st.button(
+            "Delete Portfolio",
+            use_container_width=True,
+            key="btn_delete_active_paper_account",
+            disabled=len(accounts) <= 1
+        )
+
+    selected_account = next(account for account in accounts if account["account_label"] == selected_label)
+    if delete_account:
+        success, msg = database.delete_paper_account(subscriber["id"], selected_account["account_label"])
+        if success:
+            remaining_accounts = [
+                account for account in accounts
+                if account["account_label"] != selected_account["account_label"]
+            ]
+            if remaining_accounts:
+                st.session_state.active_paper_account_label = remaining_accounts[0]["account_label"]
+            st.session_state.pending_toast = msg
+            st.rerun()
+        else:
+            st.error(msg)
+
+    _render_paper_account(subscriber, selected_account)
+
+
+def _render_paper_account(subscriber, account):
+    account_label = account["account_label"]
+    key_prefix = f"paper_account_{account['id']}"
+    clear_key = f"clear_paper_inputs_{key_prefix}"
+
+    # Pre-instantiation session state reset for form fields
+    if st.session_state.get(clear_key):
+        st.session_state[f"{key_prefix}_paper_ticker_in"] = ""
+        st.session_state[f"{key_prefix}_paper_amt_in"] = 1000.0
+        st.session_state[f"{key_prefix}_paper_shares_in"] = 12.0
+        st.session_state[f"{key_prefix}_paper_custom_price_in"] = 100.0
+        del st.session_state[clear_key]
+
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown(f'<div class="card-title">{account_label}</div>', unsafe_allow_html=True)
     st.markdown('<div style="margin-top: 14px;"></div>', unsafe_allow_html=True)
 
     # ----------------------------------------------------
@@ -63,7 +184,7 @@ def render_paper_trading_tab(subscriber, token):
             "Target Ticker",
             placeholder="e.g. NVDA, PLTR",
             label_visibility="collapsed",
-            key="paper_ticker_in"
+            key=f"{key_prefix}_paper_ticker_in"
         ).strip().upper()
 
     # Group 2: Sizing Unit Selector + Input Field SIDE-BY-SIDE
@@ -75,7 +196,7 @@ def render_paper_trading_tab(subscriber, token):
                 "Unit",
                 ["Shares", "$ Dollars"],
                 label_visibility="collapsed",
-                key="paper_alloc_unit"
+                key=f"{key_prefix}_paper_alloc_unit"
             )
         with scol_val:
             if "Shares" in alloc_unit:
@@ -85,7 +206,7 @@ def render_paper_trading_tab(subscriber, token):
                     value=12.0,
                     step=1.0,
                     label_visibility="collapsed",
-                    key="paper_shares_in"
+                    key=f"{key_prefix}_paper_shares_in"
                 )
                 invest_sum = None
             else:
@@ -95,7 +216,7 @@ def render_paper_trading_tab(subscriber, token):
                     value=1000.0,
                     step=250.0,
                     label_visibility="collapsed",
-                    key="paper_amt_in"
+                    key=f"{key_prefix}_paper_amt_in"
                 )
                 shares_qty = None
 
@@ -108,7 +229,7 @@ def render_paper_trading_tab(subscriber, token):
                 "Price Mode",
                 ["Auto Live", "Custom Price"],
                 label_visibility="collapsed",
-                key="paper_price_mode"
+                key=f"{key_prefix}_paper_price_mode"
             )
         with pcol_val:
             if "Custom Price" in price_mode:
@@ -118,7 +239,7 @@ def render_paper_trading_tab(subscriber, token):
                     value=100.0,
                     step=1.0,
                     label_visibility="collapsed",
-                    key="paper_custom_price_in"
+                    key=f"{key_prefix}_paper_custom_price_in"
                 )
             else:
                 st.markdown('<div style="height: 42px; display: flex; align-items: center; justify-content: center; background: rgba(30, 41, 59, 0.7); border: 1px solid #334155; border-radius: 8px; font-size: 0.85rem; font-weight: 700; color: #38bdf8;">Live Market</div>', unsafe_allow_html=True)
@@ -127,7 +248,7 @@ def render_paper_trading_tab(subscriber, token):
     # Group 4: Execute Button
     with fcol4:
         st.markdown('<div style="font-size:0.8rem; font-weight:700; color:transparent; margin-bottom:6px;">Action</div>', unsafe_allow_html=True)
-        submit_btn = st.button("Buy Position", type="primary", use_container_width=True, key="btn_buy_paper_position")
+        submit_btn = st.button("Add to Portfolio", type="primary", use_container_width=True, key=f"{key_prefix}_btn_buy_paper_position")
 
     if submit_btn:
         sym = ticker_input.split(" ")[0].split("-")[0].strip().upper()
@@ -139,10 +260,11 @@ def render_paper_trading_tab(subscriber, token):
                 ticker=sym,
                 total_invested=invest_sum,
                 shares=shares_qty,
-                entry_price=entry_price_input
+                entry_price=entry_price_input,
+                account_label=account_label
             )
             if success:
-                st.session_state["clear_paper_inputs"] = True
+                st.session_state[clear_key] = True
                 st.session_state.active_main_tab = "🎮 Paper Portfolio"
                 st.rerun()
             else:
@@ -154,8 +276,8 @@ def render_paper_trading_tab(subscriber, token):
     # ----------------------------------------------------
     # 2. FETCH OPEN & CLOSED POSITIONS
     # ----------------------------------------------------
-    open_trades = database.get_open_paper_trades(subscriber["id"])
-    closed_trades = database.get_closed_paper_trades(subscriber["id"])
+    open_trades = database.get_open_paper_trades(subscriber["id"], account_label=account_label)
+    closed_trades = database.get_closed_paper_trades(subscriber["id"], account_label=account_label)
 
     if not open_trades and not closed_trades:
         st.markdown('<div class="card" style="text-align: center; padding: 24px;">', unsafe_allow_html=True)
@@ -165,20 +287,20 @@ def render_paper_trading_tab(subscriber, token):
         st.markdown('<div style="margin-top: 14px;"></div>', unsafe_allow_html=True)
         qp1, qp2, qp3 = st.columns(3)
         with qp1:
-            if st.button("Quick Paper $1,000 NVDA", key="quick_p_nvda", use_container_width=True):
-                database.add_paper_trade(subscriber["id"], "NVDA", total_invested=1000.0)
+            if st.button("Quick Paper $1,000 NVDA", key=f"{key_prefix}_quick_p_nvda", use_container_width=True):
+                database.add_paper_trade(subscriber["id"], "NVDA", total_invested=1000.0, account_label=account_label)
                 st.session_state.active_main_tab = "🎮 Paper Portfolio"
                 st.session_state.pending_toast = "Added Quick $1,000 NVDA paper position!"
                 st.rerun()
         with qp2:
-            if st.button("Quick Paper $2,500 AMD", key="quick_p_amd", use_container_width=True):
-                database.add_paper_trade(subscriber["id"], "AMD", total_invested=2500.0)
+            if st.button("Quick Paper $2,500 AMD", key=f"{key_prefix}_quick_p_amd", use_container_width=True):
+                database.add_paper_trade(subscriber["id"], "AMD", total_invested=2500.0, account_label=account_label)
                 st.session_state.active_main_tab = "🎮 Paper Portfolio"
                 st.session_state.pending_toast = "Added Quick $2,500 AMD paper position!"
                 st.rerun()
         with qp3:
-            if st.button("Quick Paper $5,000 PLTR", key="quick_p_pltr", use_container_width=True):
-                database.add_paper_trade(subscriber["id"], "PLTR", total_invested=5000.0)
+            if st.button("Quick Paper $5,000 PLTR", key=f"{key_prefix}_quick_p_pltr", use_container_width=True):
+                database.add_paper_trade(subscriber["id"], "PLTR", total_invested=5000.0, account_label=account_label)
                 st.session_state.active_main_tab = "🎮 Paper Portfolio"
                 st.session_state.pending_toast = "Added Quick $5,000 PLTR paper position!"
                 st.rerun()
@@ -309,7 +431,7 @@ def render_paper_trading_tab(subscriber, token):
                 ["By Sector", "By Ticker"],
                 horizontal=True,
                 label_visibility="collapsed",
-                key="paper_alloc_view_toggle"
+                key=f"{key_prefix}_paper_alloc_view_toggle"
             )
 
         if "Ticker" in alloc_view:
@@ -403,7 +525,7 @@ def render_paper_trading_tab(subscriber, token):
 
             row_c1, row_c2, row_c3, row_c4, row_c5, row_c6, row_c7, row_c8, row_c9, row_c10 = st.columns([1.5, 1.6, 1.4, 1.6, 1.2, 1.4, 1.6, 1.4, 2.0, 1.6])
             with row_c1:
-                if st.button(f"Analyze {sym}", key=f"btn_deep_paper_{t_id}", use_container_width=True):
+                if st.button(f"Analyze {sym}", key=f"{key_prefix}_btn_deep_paper_{t_id}", use_container_width=True):
                     st.session_state.selected_ticker_detail = sym
                     st.rerun()
             with row_c2:
@@ -431,13 +553,13 @@ def render_paper_trading_tab(subscriber, token):
             with row_c10:
                 bcol1, bcol2 = st.columns(2)
                 with bcol1:
-                    if st.button("Sell", key=f"btn_sell_paper_{t_id}", type="primary", use_container_width=True):
+                    if st.button("Sell", key=f"{key_prefix}_btn_sell_paper_{t_id}", type="primary", use_container_width=True):
                         ok, msg = database.close_paper_trade(t_id, exit_price=trade["current_price"])
                         if ok:
                             st.session_state.active_main_tab = "🎮 Paper Portfolio"
                             st.rerun()
                 with bcol2:
-                    if st.button("Remove", key=f"btn_del_paper_{t_id}", use_container_width=True):
+                    if st.button("Remove", key=f"{key_prefix}_btn_del_paper_{t_id}", use_container_width=True):
                         database.delete_paper_trade(t_id)
                         st.session_state.active_main_tab = "🎮 Paper Portfolio"
                         st.rerun()

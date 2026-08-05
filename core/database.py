@@ -122,6 +122,16 @@ def init_db():
         UNIQUE(ticker, discovery_date)
     );
     """
+    create_paper_accounts_table = """
+    CREATE TABLE IF NOT EXISTS paper_accounts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subscriber_id INTEGER NOT NULL,
+        account_label TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (subscriber_id) REFERENCES subscribers (id) ON DELETE CASCADE,
+        UNIQUE (subscriber_id, account_label)
+    );
+    """
     
     conn = get_db_connection()
     try:
@@ -130,6 +140,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS paper_trades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 subscriber_id INTEGER NOT NULL,
+                account_label TEXT DEFAULT 'Account 1',
                 ticker TEXT NOT NULL,
                 entry_date TEXT NOT NULL,
                 entry_price REAL NOT NULL,
@@ -149,7 +160,13 @@ def init_db():
             conn.execute(create_scheduler_state_table)
             conn.execute(create_growth_discoveries_table)
             conn.execute(create_heartbeat_discoveries_table)
+            conn.execute(create_paper_accounts_table)
             conn.execute(create_paper_trades_table)
+
+            cursor_p = conn.execute("PRAGMA table_info(paper_trades);")
+            p_columns = [row["name"] for row in cursor_p.fetchall()]
+            if "account_label" not in p_columns:
+                conn.execute("ALTER TABLE paper_trades ADD COLUMN account_label TEXT DEFAULT 'Account 1';")
             
             # Ensure default row 1 exists in scheduler_state
             conn.execute("INSERT OR IGNORE INTO scheduler_state (id, is_active, start_timestamp) VALUES (1, 0, NULL);")
@@ -1718,7 +1735,154 @@ def get_ticker_heartbeat_blueprint(ticker):
 # ----------------------------------------------------
 # PAPER PORTFOLIO SIMULATOR FUNCTIONS
 # ----------------------------------------------------
-def add_paper_trade(subscriber_id, ticker, total_invested=None, shares=None, entry_price=None):
+DEFAULT_PAPER_ACCOUNT_LABELS = ("Account 1", "Account 2")
+MAX_PAPER_ACCOUNTS = 5
+
+
+def _clean_paper_account_label(account_label):
+    label = (account_label or "").strip()
+    return label[:60] if label else ""
+
+
+def _ensure_default_paper_accounts(conn, subscriber_id):
+    account_count = conn.execute("""
+        SELECT COUNT(*) AS count
+        FROM paper_accounts
+        WHERE subscriber_id = ?;
+    """, (subscriber_id,)).fetchone()["count"]
+    if account_count == 0:
+        for label in DEFAULT_PAPER_ACCOUNT_LABELS:
+            conn.execute("""
+                INSERT OR IGNORE INTO paper_accounts (subscriber_id, account_label)
+                VALUES (?, ?);
+            """, (subscriber_id, label))
+
+    existing_trade_accounts = conn.execute("""
+        SELECT DISTINCT account_label
+        FROM paper_trades
+        WHERE subscriber_id = ? AND account_label IS NOT NULL AND TRIM(account_label) != '';
+    """, (subscriber_id,)).fetchall()
+    for row in existing_trade_accounts:
+        conn.execute("""
+            INSERT OR IGNORE INTO paper_accounts (subscriber_id, account_label)
+            VALUES (?, ?);
+        """, (subscriber_id, row["account_label"]))
+
+
+def get_paper_accounts(subscriber_id):
+    """
+    Returns persisted paper trading account labels for a subscriber.
+    Ensures the two original default accounts exist for backward compatibility.
+    """
+    conn = get_db_connection()
+    try:
+        with conn:
+            _ensure_default_paper_accounts(conn, subscriber_id)
+        rows = conn.execute("""
+            SELECT id, account_label, created_at
+            FROM paper_accounts
+            WHERE subscriber_id = ?
+            ORDER BY id ASC;
+        """, (subscriber_id,)).fetchall()
+        return [dict(r) for r in rows]
+    except sqlite3.Error as e:
+        logging.error(f"Database error getting paper accounts: {e}")
+        return [{"id": 0, "account_label": "Account 1"}, {"id": 0, "account_label": "Account 2"}]
+    finally:
+        conn.close()
+
+
+def add_paper_account(subscriber_id, account_label=None):
+    """
+    Creates a new paper trading account for a subscriber.
+    If no label is supplied, picks the next available Account N label.
+    """
+    conn = get_db_connection()
+    try:
+        with conn:
+            _ensure_default_paper_accounts(conn, subscriber_id)
+            account_count = conn.execute("""
+                SELECT COUNT(*) AS count
+                FROM paper_accounts
+                WHERE subscriber_id = ?;
+            """, (subscriber_id,)).fetchone()["count"]
+            if account_count >= MAX_PAPER_ACCOUNTS:
+                return False, f"You can only have up to {MAX_PAPER_ACCOUNTS} paper portfolios."
+
+            label = _clean_paper_account_label(account_label)
+            if not label:
+                existing = conn.execute("""
+                    SELECT account_label
+                    FROM paper_accounts
+                    WHERE subscriber_id = ?;
+                """, (subscriber_id,)).fetchall()
+                existing_labels = {row["account_label"] for row in existing}
+                next_num = len(existing_labels) + 1
+                label = f"Account {next_num}"
+                while label in existing_labels:
+                    next_num += 1
+                    label = f"Account {next_num}"
+
+            conn.execute("""
+                INSERT INTO paper_accounts (subscriber_id, account_label)
+                VALUES (?, ?);
+            """, (subscriber_id, label))
+        return True, f"Added paper portfolio: {label}"
+    except sqlite3.IntegrityError:
+        return False, "That paper portfolio name already exists."
+    except sqlite3.Error as e:
+        logging.error(f"Database error adding paper account: {e}")
+        return False, f"Database error: {e}"
+    finally:
+        conn.close()
+
+
+def delete_paper_account(subscriber_id, account_label):
+    """
+    Deletes a paper trading account and all paper trades inside it.
+    Keeps at least one paper portfolio available for the subscriber.
+    """
+    account_label = _clean_paper_account_label(account_label)
+    if not account_label:
+        return False, "Paper portfolio name is required."
+
+    conn = get_db_connection()
+    try:
+        with conn:
+            _ensure_default_paper_accounts(conn, subscriber_id)
+            account_count = conn.execute("""
+                SELECT COUNT(*) AS count
+                FROM paper_accounts
+                WHERE subscriber_id = ?;
+            """, (subscriber_id,)).fetchone()["count"]
+            if account_count <= 1:
+                return False, "You need at least one paper portfolio."
+
+            existing = conn.execute("""
+                SELECT id
+                FROM paper_accounts
+                WHERE subscriber_id = ? AND account_label = ?;
+            """, (subscriber_id, account_label)).fetchone()
+            if not existing:
+                return False, "Paper portfolio not found."
+
+            conn.execute("""
+                DELETE FROM paper_trades
+                WHERE subscriber_id = ? AND account_label = ?;
+            """, (subscriber_id, account_label))
+            conn.execute("""
+                DELETE FROM paper_accounts
+                WHERE subscriber_id = ? AND account_label = ?;
+            """, (subscriber_id, account_label))
+        return True, f"Deleted paper portfolio: {account_label}"
+    except sqlite3.Error as e:
+        logging.error(f"Database error deleting paper account: {e}")
+        return False, f"Database error: {e}"
+    finally:
+        conn.close()
+
+
+def add_paper_trade(subscriber_id, ticker, total_invested=None, shares=None, entry_price=None, account_label="Account 1"):
     """
     Adds a new paper trade for subscriber.
     Accepts either total_invested ($) or shares quantity.
@@ -1727,6 +1891,7 @@ def add_paper_trade(subscriber_id, ticker, total_invested=None, shares=None, ent
     ticker = ticker.strip().upper()
     if not ticker:
         return False, "Ticker symbol is required."
+    account_label = (account_label or "Account 1").strip() or "Account 1"
 
     if entry_price is None or float(entry_price) <= 0:
         try:
@@ -1756,9 +1921,13 @@ def add_paper_trade(subscriber_id, ticker, total_invested=None, shares=None, ent
     try:
         with conn:
             conn.execute("""
-                INSERT INTO paper_trades (subscriber_id, ticker, entry_date, entry_price, total_invested, shares, status)
-                VALUES (?, ?, ?, ?, ?, ?, 'OPEN');
-            """, (subscriber_id, ticker, entry_date, entry_price, total_invested, shares))
+                INSERT OR IGNORE INTO paper_accounts (subscriber_id, account_label)
+                VALUES (?, ?);
+            """, (subscriber_id, account_label))
+            conn.execute("""
+                INSERT INTO paper_trades (subscriber_id, account_label, ticker, entry_date, entry_price, total_invested, shares, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN');
+            """, (subscriber_id, account_label, ticker, entry_date, entry_price, total_invested, shares))
         return True, f"Successfully added paper position: {shares:.3f} shares of {ticker} @ ${entry_price:,.2f} (${total_invested:,.2f})!"
     except sqlite3.Error as e:
         logging.error(f"Database error adding paper trade: {e}")
@@ -1766,19 +1935,20 @@ def add_paper_trade(subscriber_id, ticker, total_invested=None, shares=None, ent
     finally:
         conn.close()
 
-def get_open_paper_trades(subscriber_id):
+def get_open_paper_trades(subscriber_id, account_label="Account 1"):
     """
     Returns list of open paper trades for subscriber.
     """
     conn = get_db_connection()
     try:
+        account_label = (account_label or "Account 1").strip() or "Account 1"
         cursor = conn.cursor()
         rows = cursor.execute("""
-            SELECT id, ticker, entry_date, entry_price, total_invested, shares, status
+            SELECT id, account_label, ticker, entry_date, entry_price, total_invested, shares, status
             FROM paper_trades
-            WHERE subscriber_id = ? AND status = 'OPEN'
+            WHERE subscriber_id = ? AND account_label = ? AND status = 'OPEN'
             ORDER BY id DESC;
-        """, (subscriber_id,)).fetchall()
+        """, (subscriber_id, account_label)).fetchall()
         return [dict(r) for r in rows]
     except sqlite3.Error as e:
         logging.error(f"Database error getting open paper trades: {e}")
@@ -1786,19 +1956,20 @@ def get_open_paper_trades(subscriber_id):
     finally:
         conn.close()
 
-def get_closed_paper_trades(subscriber_id):
+def get_closed_paper_trades(subscriber_id, account_label="Account 1"):
     """
     Returns list of closed paper trades for subscriber.
     """
     conn = get_db_connection()
     try:
+        account_label = (account_label or "Account 1").strip() or "Account 1"
         cursor = conn.cursor()
         rows = cursor.execute("""
-            SELECT id, ticker, entry_date, entry_price, total_invested, shares, status, exit_date, exit_price, realized_pnl
+            SELECT id, account_label, ticker, entry_date, entry_price, total_invested, shares, status, exit_date, exit_price, realized_pnl
             FROM paper_trades
-            WHERE subscriber_id = ? AND status = 'CLOSED'
+            WHERE subscriber_id = ? AND account_label = ? AND status = 'CLOSED'
             ORDER BY exit_date DESC, id DESC;
-        """, (subscriber_id,)).fetchall()
+        """, (subscriber_id, account_label)).fetchall()
         return [dict(r) for r in rows]
     except sqlite3.Error as e:
         logging.error(f"Database error getting closed paper trades: {e}")
