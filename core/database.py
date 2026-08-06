@@ -10,6 +10,9 @@ DB_FILE = os.getenv("DATABASE_PATH", "sentinel.db")
 HEARTBEAT_ENTRY_MODEL_VERSION = "next_open_v1"
 HEARTBEAT_OUTCOME_RULE_VERSION = "heartbeat_v1"
 HEARTBEAT_MODELED_ENTRY_RULE = "next_regular_session_open_after_signal_session"
+HEARTBEAT_LEGACY_ENTRY_MODEL_VERSION = "legacy_precanonical_v0"
+HEARTBEAT_LEGACY_OUTCOME_RULE_VERSION = "legacy_heartbeat_v0"
+HEARTBEAT_LEGACY_ENTRY_RULE = "legacy_close_or_day3_open"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -1018,6 +1021,14 @@ def ensure_heartbeat_outcome_for_discovery(discovery_id, source_type="live", leg
         now_str = datetime.now().isoformat()
         signal_date = str(discovery["discovery_date"])[:10]
         signal_timestamp = discovery["created_at"] or now_str
+        if source_type == "legacy_migrated":
+            modeled_entry_rule = HEARTBEAT_LEGACY_ENTRY_RULE
+            entry_model_version = HEARTBEAT_LEGACY_ENTRY_MODEL_VERSION
+            outcome_rule_version = HEARTBEAT_LEGACY_OUTCOME_RULE_VERSION
+        else:
+            modeled_entry_rule = HEARTBEAT_MODELED_ENTRY_RULE
+            entry_model_version = HEARTBEAT_ENTRY_MODEL_VERSION
+            outcome_rule_version = HEARTBEAT_OUTCOME_RULE_VERSION
 
         def insert_outcome():
             conn.execute(
@@ -1036,10 +1047,10 @@ def ensure_heartbeat_outcome_for_discovery(discovery_id, source_type="live", leg
                     signal_date,
                     signal_timestamp,
                     discovery["initial_price"],
-                    HEARTBEAT_MODELED_ENTRY_RULE,
-                    HEARTBEAT_ENTRY_MODEL_VERSION,
+                    modeled_entry_rule,
+                    entry_model_version,
                     "legacy_unknown" if source_type == "legacy_migrated" else None,
-                    HEARTBEAT_OUTCOME_RULE_VERSION,
+                    outcome_rule_version,
                     source_type,
                     legacy_sent_alert_id,
                     reconstruction_notes,
@@ -1144,10 +1155,9 @@ def _normalize_history_frame(hist):
     return df
 
 
-def _completed_regular_session_history(hist):
+def _completed_regular_session_history_from_frame(df):
     from core import market_calendar
 
-    df = _normalize_history_frame(hist)
     if df is None:
         return None
 
@@ -1167,6 +1177,15 @@ def _completed_regular_session_history(hist):
         schedule = market_calendar.get_market_schedule(bar_date)
         completed_dates.append(now_et.time() > schedule["market_close"])
     return df.loc[completed_dates].copy()
+
+
+def _fetch_heartbeat_history(ticker, signal_date):
+    import yfinance as yf
+
+    start_date = signal_date - timedelta(days=10) if signal_date else None
+    if start_date:
+        return yf.Ticker(ticker).history(start=start_date.strftime("%Y-%m-%d"), auto_adjust=False)
+    return yf.Ticker(ticker).history(period="6mo", auto_adjust=False)
 
 
 def _resolve_heartbeat_bars(entry, stop, target, future_bars, max_hold_bars=10):
@@ -1240,8 +1259,6 @@ def resolve_pending_heartbeat_outcomes(max_hold_bars=10):
     Resolves canonical Heartbeat outcomes using next regular-session open entries.
     Leaves rows pending when market data is not yet available.
     """
-    import yfinance as yf
-
     conn = get_db_connection()
     attempted_at = datetime.now().isoformat()
     try:
@@ -1262,8 +1279,9 @@ def resolve_pending_heartbeat_outcomes(max_hold_bars=10):
             outcome_id = outcome["id"]
             ticker = outcome["ticker"]
             try:
-                hist = _completed_regular_session_history(yf.Ticker(ticker).history(period="6mo"))
-                if hist is None:
+                signal_date = _parse_date_only(outcome["signal_date"])
+                raw_hist = _normalize_history_frame(_fetch_heartbeat_history(ticker, signal_date))
+                if raw_hist is None:
                     with conn:
                         conn.execute(
                             """
@@ -1274,6 +1292,7 @@ def resolve_pending_heartbeat_outcomes(max_hold_bars=10):
                             (attempted_at, "No market data returned by provider.", outcome_id)
                         )
                     continue
+                completed_hist = _completed_regular_session_history_from_frame(raw_hist)
 
                 entry_status = outcome["entry_status"]
                 entry_date = outcome["entry_date"]
@@ -1282,7 +1301,6 @@ def resolve_pending_heartbeat_outcomes(max_hold_bars=10):
                 target = outcome["modeled_target"]
 
                 if entry_status == "pending":
-                    signal_date = _parse_date_only(outcome["signal_date"])
                     if not signal_date:
                         with conn:
                             conn.execute(
@@ -1309,7 +1327,7 @@ def resolve_pending_heartbeat_outcomes(max_hold_bars=10):
                         continue
 
                     entry_date = next_session.strftime("%Y-%m-%d")
-                    entry_matches = hist.index[hist["Date_Str"] == entry_date].tolist()
+                    entry_matches = raw_hist.index[raw_hist["Date_Str"] == entry_date].tolist()
                     if not entry_matches:
                         with conn:
                             conn.execute(
@@ -1323,7 +1341,7 @@ def resolve_pending_heartbeat_outcomes(max_hold_bars=10):
                         continue
 
                     entry_idx = entry_matches[0]
-                    entry = _round_money(hist.loc[entry_idx, "Open"])
+                    entry = _round_money(raw_hist.loc[entry_idx, "Open"])
                     stop, target = calculate_heartbeat_modeled_levels(entry)
                     with conn:
                         conn.execute(
@@ -1357,7 +1375,19 @@ def resolve_pending_heartbeat_outcomes(max_hold_bars=10):
                     stop = float(stop)
                     target = float(target)
 
-                entry_indices = hist.index[hist["Date_Str"] == entry_date].tolist()
+                if completed_hist is None:
+                    with conn:
+                        conn.execute(
+                            """
+                            UPDATE heartbeat_outcomes
+                            SET resolution_data_asof = ?, resolution_error = NULL, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?;
+                            """,
+                            (attempted_at, outcome_id)
+                        )
+                    continue
+
+                entry_indices = completed_hist.index[completed_hist["Date_Str"] == entry_date].tolist()
                 if not entry_indices:
                     with conn:
                         conn.execute(
@@ -1370,7 +1400,7 @@ def resolve_pending_heartbeat_outcomes(max_hold_bars=10):
                         )
                     continue
 
-                future_bars = hist.iloc[entry_indices[0]: entry_indices[0] + max_hold_bars]
+                future_bars = completed_hist.iloc[entry_indices[0]: entry_indices[0] + max_hold_bars]
                 resolution = _resolve_heartbeat_bars(float(entry), float(stop), float(target), future_bars, max_hold_bars=max_hold_bars)
                 if resolution["outcome_status"] == "pending":
                     with conn:

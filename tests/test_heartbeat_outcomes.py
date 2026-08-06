@@ -80,7 +80,7 @@ def test_resolver_uses_next_regular_session_open_and_modeled_levels(monkeypatch,
         def __init__(self, ticker):
             self.ticker = ticker
 
-        def history(self, period="6mo"):
+        def history(self, *args, **kwargs):
             return hist
 
     monkeypatch.setattr("yfinance.Ticker", FakeTicker)
@@ -117,7 +117,7 @@ def test_resolver_is_stop_first_and_flags_same_bar_ambiguity(monkeypatch, temp_d
         def __init__(self, ticker):
             self.ticker = ticker
 
-        def history(self, period="6mo"):
+        def history(self, *args, **kwargs):
             return hist
 
     monkeypatch.setattr("yfinance.Ticker", FakeTicker)
@@ -151,6 +151,34 @@ def test_migration_dry_run_and_backfill_mapping(temp_db):
                 """,
                 (sub_id,)
             )
+    finally:
+        conn.close()
+
+    plan = heartbeat_outcomes_v1.plan_migration(temp_db)
+    assert plan["planned_inserts"] == 2
+    assert plan["legacy_migrated"] == 1
+    assert plan["reconstructed"] == 1
+    assert plan["conflicts"] == []
+
+    result = heartbeat_outcomes_v1.apply_migration(temp_db, backup=False)
+    assert result["integrity"] == "ok"
+
+    conn = sqlite3.connect(temp_db)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute("SELECT * FROM heartbeat_outcomes ORDER BY discovery_id;").fetchall()
+        assert len(rows) == 2
+        by_id = {row["discovery_id"]: row for row in rows}
+        assert by_id[legacy_discovery_id]["source_type"] == "legacy_migrated"
+        assert by_id[legacy_discovery_id]["modeled_entry_rule"] == "legacy_close_or_day3_open"
+        assert by_id[legacy_discovery_id]["entry_model_version"] == "legacy_precanonical_v0"
+        assert by_id[legacy_discovery_id]["outcome_rule_version"] == "legacy_heartbeat_v0"
+        assert by_id[legacy_discovery_id]["legacy_sent_alert_id"] is not None
+        assert by_id[legacy_discovery_id]["modeled_entry_price"] == 20.00
+        assert by_id[reconstructed_discovery_id]["source_type"] == "reconstructed"
+        assert by_id[reconstructed_discovery_id]["entry_model_version"] == "next_open_v1"
+        assert by_id[reconstructed_discovery_id]["entry_status"] == "pending"
+        assert "modeled fill" in by_id[reconstructed_discovery_id]["reconstruction_notes"]
     finally:
         conn.close()
 
@@ -253,6 +281,49 @@ def test_migration_syncs_historical_delivery_first_at(temp_db):
     assert outcome["delivery_first_at"] == "2026-07-06 16:35:00"
 
 
+def test_multiple_subscriber_deliveries_keep_one_outcome_and_earliest_delivery(temp_db):
+    sub_1, _ = database.create_subscriber("delivery-a@example.com")
+    sub_2, _ = database.create_subscriber("delivery-b@example.com")
+    discovery_id = _insert_heartbeat_discovery(ticker="MSFT", discovery_date="2026-07-06", price=20.0)
+    database.ensure_heartbeat_outcome_for_discovery(discovery_id)
+
+    conn = database.get_db_connection()
+    try:
+        with conn:
+            for sub_id, email, delivered_at in [
+                (sub_1, "delivery-a@example.com", "2026-07-06 16:40:00"),
+                (sub_2, "delivery-b@example.com", "2026-07-06 16:35:00"),
+            ]:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO digest_deliveries (
+                        trading_date, digest_type, subscriber_id, subscriber_email, status,
+                        discovery_ids_json, discoveries_count, delivered_at
+                    )
+                    VALUES ('2026-07-06', 'PM_POSTMARKET', ?, ?, 'SUCCESS', '[1]', 1, ?);
+                    """,
+                    (sub_id, email, delivered_at)
+                )
+                conn.execute(
+                    """
+                    INSERT INTO digest_discovery_items (digest_delivery_id, source_type, source_id, ticker, score)
+                    VALUES (?, 'heartbeat', ?, 'MSFT', 85.0);
+                    """,
+                    (cursor.lastrowid, discovery_id)
+                )
+            database.sync_heartbeat_delivery_first_at(discovery_id, conn=conn)
+    finally:
+        conn.close()
+
+    conn = database.get_db_connection()
+    try:
+        rows = conn.execute("SELECT * FROM heartbeat_outcomes;").fetchall()
+        assert len(rows) == 1
+        assert rows[0]["delivery_first_at"] == "2026-07-06 16:35:00"
+    finally:
+        conn.close()
+
+
 def test_sqlite_backup_uses_online_backup_api(temp_db):
     _insert_heartbeat_discovery(ticker="MSFT", discovery_date="2026-07-06", price=20.0)
     backup_path = heartbeat_outcomes_v1.create_sqlite_backup(temp_db)
@@ -291,7 +362,7 @@ def test_resolver_persists_pending_mfe_mae_and_clears_transient_error(monkeypatc
         def __init__(self, ticker):
             self.ticker = ticker
 
-        def history(self, period="6mo"):
+        def history(self, *args, **kwargs):
             return hist
 
     monkeypatch.setattr("yfinance.Ticker", FakeTicker)
@@ -322,7 +393,7 @@ def test_resolver_does_not_timeout_on_intraday_tenth_bar(monkeypatch, temp_db):
         def __init__(self, ticker):
             self.ticker = ticker
 
-        def history(self, period="6mo"):
+        def history(self, *args, **kwargs):
             return hist
 
     from core import market_calendar
@@ -339,6 +410,80 @@ def test_resolver_does_not_timeout_on_intraday_tenth_bar(monkeypatch, temp_db):
     assert outcome["outcome_status"] == "pending"
 
 
+def test_entry_populates_after_open_before_close_without_outcome_timeout(monkeypatch, temp_db):
+    discovery_id = _insert_heartbeat_discovery(ticker="OPEN", discovery_date="2026-07-06")
+    database.ensure_heartbeat_outcome_for_discovery(discovery_id)
+
+    hist = pd.DataFrame({
+        "Date": pd.to_datetime(["2026-07-07"]),
+        "Open": [10.00],
+        "High": [10.20],
+        "Low": [9.90],
+        "Close": [10.10],
+    })
+
+    class FakeTicker:
+        def __init__(self, ticker):
+            self.ticker = ticker
+
+        def history(self, *args, **kwargs):
+            return hist
+
+    from core import market_calendar
+
+    monkeypatch.setattr("yfinance.Ticker", FakeTicker)
+    monkeypatch.setattr(
+        market_calendar,
+        "get_now_eastern",
+        lambda: datetime(2026, 7, 7, 10, 0, tzinfo=market_calendar.get_eastern_timezone())
+    )
+
+    assert database.resolve_pending_heartbeat_outcomes() == 0
+    outcome = database.get_all_heartbeat_outcomes(limit=1)[0]
+    assert outcome["entry_status"] == "filled"
+    assert outcome["entry_date"] == "2026-07-07"
+    assert outcome["modeled_entry_price"] == 10.0
+    assert outcome["modeled_stop"] == 9.5
+    assert outcome["modeled_target"] == 12.0
+    assert outcome["outcome_status"] == "pending"
+
+
+def test_completed_tenth_bar_produces_timeout(monkeypatch, temp_db):
+    discovery_id = _insert_heartbeat_discovery(ticker="DONE", discovery_date="2026-07-06")
+    database.ensure_heartbeat_outcome_for_discovery(discovery_id)
+
+    dates = pd.date_range("2026-07-07", periods=10, freq="B")
+    hist = pd.DataFrame({
+        "Date": dates,
+        "Open": [10.00] * 10,
+        "High": [10.50] * 10,
+        "Low": [9.80] * 10,
+        "Close": [10.10] * 10,
+    })
+
+    class FakeTicker:
+        def __init__(self, ticker):
+            self.ticker = ticker
+
+        def history(self, *args, **kwargs):
+            return hist
+
+    from core import market_calendar
+
+    monkeypatch.setattr("yfinance.Ticker", FakeTicker)
+    monkeypatch.setattr(
+        market_calendar,
+        "get_now_eastern",
+        lambda: datetime(2026, 7, 20, 17, 0, tzinfo=market_calendar.get_eastern_timezone())
+    )
+
+    assert database.resolve_pending_heartbeat_outcomes() == 1
+    outcome = database.get_all_heartbeat_outcomes(limit=1)[0]
+    assert outcome["outcome_status"] == "timeout"
+    assert outcome["exit_date"] == "2026-07-20"
+    assert outcome["return_pct"] == 0.01
+
+
 def test_provider_failure_records_error_without_bad_outcome(monkeypatch, temp_db):
     discovery_id = _insert_heartbeat_discovery(ticker="FAIL")
     database.ensure_heartbeat_outcome_for_discovery(discovery_id)
@@ -347,7 +492,7 @@ def test_provider_failure_records_error_without_bad_outcome(monkeypatch, temp_db
         def __init__(self, ticker):
             self.ticker = ticker
 
-        def history(self, period="6mo"):
+        def history(self, *args, **kwargs):
             raise RuntimeError("provider unavailable")
 
     monkeypatch.setattr("yfinance.Ticker", FakeTicker)
@@ -356,6 +501,35 @@ def test_provider_failure_records_error_without_bad_outcome(monkeypatch, temp_db
     outcome = database.get_all_heartbeat_outcomes(limit=1)[0]
     assert outcome["outcome_status"] == "pending"
     assert "provider unavailable" in outcome["resolution_error"]
+
+
+def test_history_fetch_uses_date_start_and_raw_adjustment_policy(monkeypatch, temp_db):
+    discovery_id = _insert_heartbeat_discovery(ticker="POLICY", discovery_date="2026-07-06")
+    database.ensure_heartbeat_outcome_for_discovery(discovery_id)
+    calls = []
+
+    hist = pd.DataFrame({
+        "Date": pd.to_datetime(["2026-07-07"]),
+        "Open": [10.00],
+        "High": [10.20],
+        "Low": [9.90],
+        "Close": [10.10],
+    })
+
+    class FakeTicker:
+        def __init__(self, ticker):
+            self.ticker = ticker
+
+        def history(self, *args, **kwargs):
+            calls.append(kwargs)
+            return hist
+
+    monkeypatch.setattr("yfinance.Ticker", FakeTicker)
+    database.resolve_pending_heartbeat_outcomes()
+
+    assert calls
+    assert calls[0]["start"] == "2026-06-26"
+    assert calls[0]["auto_adjust"] is False
 
 
 def test_record_heartbeat_discovery_rolls_back_when_outcome_creation_fails(monkeypatch, temp_db):
