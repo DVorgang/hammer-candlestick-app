@@ -1079,7 +1079,7 @@ def sync_heartbeat_delivery_first_at(discovery_id, conn=None):
                 UPDATE heartbeat_outcomes
                 SET delivery_first_at = (
                     SELECT MIN(d.delivered_at)
-                    FROM digest_delivery_items i
+                    FROM digest_discovery_items i
                     JOIN digest_deliveries d ON i.digest_delivery_id = d.id
                     WHERE i.source_type = 'heartbeat'
                       AND i.source_id = heartbeat_outcomes.discovery_id
@@ -1091,7 +1091,7 @@ def sync_heartbeat_delivery_first_at(discovery_id, conn=None):
                   AND delivery_first_at IS NULL
                   AND EXISTS (
                     SELECT 1
-                    FROM digest_delivery_items i
+                    FROM digest_discovery_items i
                     JOIN digest_deliveries d ON i.digest_delivery_id = d.id
                     WHERE i.source_type = 'heartbeat'
                       AND i.source_id = heartbeat_outcomes.discovery_id
@@ -1144,6 +1144,31 @@ def _normalize_history_frame(hist):
     return df
 
 
+def _completed_regular_session_history(hist):
+    from core import market_calendar
+
+    df = _normalize_history_frame(hist)
+    if df is None:
+        return None
+
+    now_et = market_calendar.get_now_eastern()
+    completed_dates = []
+    for _, row in df.iterrows():
+        bar_date = _parse_date_only(row["Date_Str"])
+        if not bar_date:
+            completed_dates.append(False)
+            continue
+        if bar_date < now_et.date():
+            completed_dates.append(True)
+            continue
+        if bar_date > now_et.date():
+            completed_dates.append(False)
+            continue
+        schedule = market_calendar.get_market_schedule(bar_date)
+        completed_dates.append(now_et.time() > schedule["market_close"])
+    return df.loc[completed_dates].copy()
+
+
 def _resolve_heartbeat_bars(entry, stop, target, future_bars, max_hold_bars=10):
     status = "pending"
     exit_price = None
@@ -1157,7 +1182,6 @@ def _resolve_heartbeat_bars(entry, stop, target, future_bars, max_hold_bars=10):
     for idx, bar in future_bars.iloc[:max_hold_bars].iterrows():
         b_high = float(bar["High"])
         b_low = float(bar["Low"])
-        b_close = float(bar["Close"])
         b_date = str(bar["Date_Str"])
         max_high = max(max_high, b_high)
         min_low = min(min_low, b_low)
@@ -1195,6 +1219,8 @@ def _resolve_heartbeat_bars(entry, stop, target, future_bars, max_hold_bars=10):
     if resolution_bar_index is None:
         return {
             "outcome_status": "pending",
+            "mfe_pct": round((max_high - entry) / entry, 4),
+            "mae_pct": round((min_low - entry) / entry, 4),
             "same_bar_ambiguous": same_bar_ambiguous,
         }
 
@@ -1236,7 +1262,7 @@ def resolve_pending_heartbeat_outcomes(max_hold_bars=10):
             outcome_id = outcome["id"]
             ticker = outcome["ticker"]
             try:
-                hist = _normalize_history_frame(yf.Ticker(ticker).history(period="6mo"))
+                hist = _completed_regular_session_history(yf.Ticker(ticker).history(period="6mo"))
                 if hist is None:
                     with conn:
                         conn.execute(
@@ -1333,11 +1359,40 @@ def resolve_pending_heartbeat_outcomes(max_hold_bars=10):
 
                 entry_indices = hist.index[hist["Date_Str"] == entry_date].tolist()
                 if not entry_indices:
+                    with conn:
+                        conn.execute(
+                            """
+                            UPDATE heartbeat_outcomes
+                            SET resolution_data_asof = ?, resolution_error = NULL, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?;
+                            """,
+                            (attempted_at, outcome_id)
+                        )
                     continue
 
                 future_bars = hist.iloc[entry_indices[0]: entry_indices[0] + max_hold_bars]
                 resolution = _resolve_heartbeat_bars(float(entry), float(stop), float(target), future_bars, max_hold_bars=max_hold_bars)
                 if resolution["outcome_status"] == "pending":
+                    with conn:
+                        conn.execute(
+                            """
+                            UPDATE heartbeat_outcomes
+                            SET mfe_pct = ?,
+                                mae_pct = ?,
+                                same_bar_ambiguous = ?,
+                                resolution_data_asof = ?,
+                                resolution_error = NULL,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?;
+                            """,
+                            (
+                                resolution.get("mfe_pct"),
+                                resolution.get("mae_pct"),
+                                int(resolution["same_bar_ambiguous"]),
+                                attempted_at,
+                                outcome_id,
+                            )
+                        )
                     continue
 
                 with conn:
@@ -1661,6 +1716,7 @@ def get_heartbeat_outcome_summary():
             "not_filled": 0,
             "resolved_next_open": 0,
             "wins_next_open": 0,
+            "profitable_timeouts_next_open": 0,
             "return_sum_next_open": 0.0,
         }
         for row in rows:
@@ -1679,8 +1735,10 @@ def get_heartbeat_outcome_summary():
             if comparable and resolved and row["return_pct"] is not None:
                 summary["resolved_next_open"] += 1
                 summary["return_sum_next_open"] += float(row["return_pct"])
-                if row["outcome_status"] == "win" or float(row["return_pct"]) > 0:
+                if row["outcome_status"] == "win":
                     summary["wins_next_open"] += 1
+                elif row["outcome_status"] == "timeout" and float(row["return_pct"]) > 0:
+                    summary["profitable_timeouts_next_open"] += 1
 
         if summary["resolved_next_open"]:
             summary["win_rate_next_open"] = round(summary["wins_next_open"] / summary["resolved_next_open"], 4)
@@ -1701,6 +1759,7 @@ def get_heartbeat_outcome_summary():
             "not_filled": 0,
             "resolved_next_open": 0,
             "wins_next_open": 0,
+            "profitable_timeouts_next_open": 0,
             "return_sum_next_open": 0.0,
             "win_rate_next_open": None,
             "avg_return_next_open": 0.0,
@@ -2074,8 +2133,9 @@ def record_heartbeat_discovery(ticker, conviction_score, catalyst_type, headline
                 discovery_id = cursor.lastrowid
                 created = True
                 updated = False
-
-        ensure_heartbeat_outcome_for_discovery(discovery_id, source_type="live")
+            outcome = ensure_heartbeat_outcome_for_discovery(discovery_id, source_type="live", conn=conn)
+            if not outcome:
+                raise sqlite3.Error(f"Failed to create canonical heartbeat outcome for discovery {discovery_id}")
         return {
             "discovery_id": discovery_id,
             "created": created,

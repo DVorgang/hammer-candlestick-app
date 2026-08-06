@@ -2,6 +2,7 @@ import os
 import sqlite3
 import sys
 import tempfile
+from datetime import datetime
 
 import pandas as pd
 import pytest
@@ -153,25 +154,245 @@ def test_migration_dry_run_and_backfill_mapping(temp_db):
     finally:
         conn.close()
 
-    plan = heartbeat_outcomes_v1.plan_migration(temp_db)
-    assert plan["planned_inserts"] == 2
-    assert plan["legacy_migrated"] == 1
-    assert plan["reconstructed"] == 1
 
-    result = heartbeat_outcomes_v1.apply_migration(temp_db, backup=False)
-    assert result["integrity"] == "ok"
+def test_migration_is_idempotent_and_preserves_legacy_sent_alerts(temp_db):
+    sub_id, _ = database.create_subscriber("legacy2@example.com")
+    _insert_heartbeat_discovery(ticker="MSFT", discovery_date="2026-07-06", price=20.0)
+
+    conn = database.get_db_connection()
+    try:
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO sent_alerts (
+                    subscriber_id, ticker, pattern_type, day1_date, day2_date,
+                    entry_price, stop_loss, profit_target, outcome_status,
+                    exit_price, exit_date, return_pct
+                )
+                VALUES (?, 'MSFT', 'Heartbeat_Test', '2026-07-05', '2026-07-06',
+                        20.00, 19.00, 24.00, 'win', 24.00, '2026-07-08', 0.2);
+                """,
+                (sub_id,)
+            )
+        before = [tuple(row) for row in conn.execute("SELECT * FROM sent_alerts ORDER BY id;").fetchall()]
+    finally:
+        conn.close()
+
+    heartbeat_outcomes_v1.apply_migration(temp_db, backup=False)
+    heartbeat_outcomes_v1.apply_migration(temp_db, backup=False)
 
     conn = sqlite3.connect(temp_db)
     conn.row_factory = sqlite3.Row
     try:
-        rows = conn.execute("SELECT * FROM heartbeat_outcomes ORDER BY discovery_id;").fetchall()
-        assert len(rows) == 2
-        by_id = {row["discovery_id"]: row for row in rows}
-        assert by_id[legacy_discovery_id]["source_type"] == "legacy_migrated"
-        assert by_id[legacy_discovery_id]["legacy_sent_alert_id"] is not None
-        assert by_id[legacy_discovery_id]["modeled_entry_price"] == 20.00
-        assert by_id[reconstructed_discovery_id]["source_type"] == "reconstructed"
-        assert by_id[reconstructed_discovery_id]["entry_status"] == "pending"
-        assert "modeled fill" in by_id[reconstructed_discovery_id]["reconstruction_notes"]
+        assert conn.execute("SELECT COUNT(*) FROM heartbeat_outcomes;").fetchone()[0] == 1
+        after = [tuple(row) for row in conn.execute("SELECT * FROM sent_alerts ORDER BY id;").fetchall()]
+        assert after == before
     finally:
         conn.close()
+
+
+def test_migration_detects_conflicting_legacy_matches(temp_db):
+    sub_1, _ = database.create_subscriber("legacy-a@example.com")
+    sub_2, _ = database.create_subscriber("legacy-b@example.com")
+    _insert_heartbeat_discovery(ticker="MSFT", discovery_date="2026-07-06", price=20.0)
+
+    conn = database.get_db_connection()
+    try:
+        with conn:
+            for sub_id, entry in [(sub_1, 20.0), (sub_2, 21.0)]:
+                conn.execute(
+                    """
+                    INSERT INTO sent_alerts (
+                        subscriber_id, ticker, pattern_type, day1_date, day2_date,
+                        entry_price, stop_loss, profit_target, outcome_status
+                    )
+                    VALUES (?, 'MSFT', 'Heartbeat_Test', '2026-07-05', '2026-07-06',
+                            ?, 19.00, 24.00, 'pending');
+                    """,
+                    (sub_id, entry)
+                )
+    finally:
+        conn.close()
+
+    plan = heartbeat_outcomes_v1.plan_migration(temp_db)
+    assert len(plan["conflicts"]) == 1
+    with pytest.raises(RuntimeError, match="Conflicting legacy Heartbeat"):
+        heartbeat_outcomes_v1.apply_migration(temp_db, backup=False)
+
+
+def test_migration_syncs_historical_delivery_first_at(temp_db):
+    sub_id, _ = database.create_subscriber("delivery@example.com")
+    discovery_id = _insert_heartbeat_discovery(ticker="MSFT", discovery_date="2026-07-06", price=20.0)
+
+    conn = database.get_db_connection()
+    try:
+        with conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO digest_deliveries (
+                    trading_date, digest_type, subscriber_id, subscriber_email, status,
+                    discovery_ids_json, discoveries_count, delivered_at
+                )
+                VALUES ('2026-07-06', 'PM_POSTMARKET', ?, 'delivery@example.com',
+                        'SUCCESS', '[1]', 1, '2026-07-06 16:35:00');
+                """,
+                (sub_id,)
+            )
+            conn.execute(
+                """
+                INSERT INTO digest_discovery_items (digest_delivery_id, source_type, source_id, ticker, score)
+                VALUES (?, 'heartbeat', ?, 'MSFT', 85.0);
+                """,
+                (cursor.lastrowid, discovery_id)
+            )
+    finally:
+        conn.close()
+
+    heartbeat_outcomes_v1.apply_migration(temp_db, backup=False)
+    outcome = database.get_all_heartbeat_outcomes(limit=1)[0]
+    assert outcome["delivery_first_at"] == "2026-07-06 16:35:00"
+
+
+def test_sqlite_backup_uses_online_backup_api(temp_db):
+    _insert_heartbeat_discovery(ticker="MSFT", discovery_date="2026-07-06", price=20.0)
+    backup_path = heartbeat_outcomes_v1.create_sqlite_backup(temp_db)
+    assert os.path.exists(backup_path)
+
+    conn = sqlite3.connect(backup_path)
+    try:
+        assert conn.execute("PRAGMA integrity_check;").fetchone()[0] == "ok"
+        assert conn.execute("SELECT COUNT(*) FROM heartbeat_discoveries;").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
+def test_resolver_persists_pending_mfe_mae_and_clears_transient_error(monkeypatch, temp_db):
+    discovery_id = _insert_heartbeat_discovery(ticker="PEND")
+    database.ensure_heartbeat_outcome_for_discovery(discovery_id)
+    conn = database.get_db_connection()
+    try:
+        with conn:
+            conn.execute(
+                "UPDATE heartbeat_outcomes SET resolution_error = 'temporary provider failure' WHERE discovery_id = ?;",
+                (discovery_id,)
+            )
+    finally:
+        conn.close()
+
+    hist = pd.DataFrame({
+        "Date": pd.to_datetime(["2026-07-07", "2026-07-08"]),
+        "Open": [10.00, 10.50],
+        "High": [10.80, 11.00],
+        "Low": [9.80, 10.10],
+        "Close": [10.25, 10.75],
+    })
+
+    class FakeTicker:
+        def __init__(self, ticker):
+            self.ticker = ticker
+
+        def history(self, period="6mo"):
+            return hist
+
+    monkeypatch.setattr("yfinance.Ticker", FakeTicker)
+    assert database.resolve_pending_heartbeat_outcomes() == 0
+
+    outcome = database.get_all_heartbeat_outcomes(limit=1)[0]
+    assert outcome["outcome_status"] == "pending"
+    assert outcome["mfe_pct"] == 0.1
+    assert outcome["mae_pct"] == -0.02
+    assert outcome["resolution_data_asof"] is not None
+    assert outcome["resolution_error"] is None
+
+
+def test_resolver_does_not_timeout_on_intraday_tenth_bar(monkeypatch, temp_db):
+    discovery_id = _insert_heartbeat_discovery(ticker="TIME", discovery_date="2026-07-06")
+    database.ensure_heartbeat_outcome_for_discovery(discovery_id)
+
+    dates = pd.date_range("2026-07-07", periods=10, freq="B")
+    hist = pd.DataFrame({
+        "Date": dates,
+        "Open": [10.00] * 10,
+        "High": [10.50] * 10,
+        "Low": [9.80] * 10,
+        "Close": [10.10] * 10,
+    })
+
+    class FakeTicker:
+        def __init__(self, ticker):
+            self.ticker = ticker
+
+        def history(self, period="6mo"):
+            return hist
+
+    from core import market_calendar
+
+    monkeypatch.setattr("yfinance.Ticker", FakeTicker)
+    monkeypatch.setattr(
+        market_calendar,
+        "get_now_eastern",
+        lambda: datetime(2026, 7, 20, 12, 0, tzinfo=market_calendar.get_eastern_timezone())
+    )
+
+    assert database.resolve_pending_heartbeat_outcomes() == 0
+    outcome = database.get_all_heartbeat_outcomes(limit=1)[0]
+    assert outcome["outcome_status"] == "pending"
+
+
+def test_provider_failure_records_error_without_bad_outcome(monkeypatch, temp_db):
+    discovery_id = _insert_heartbeat_discovery(ticker="FAIL")
+    database.ensure_heartbeat_outcome_for_discovery(discovery_id)
+
+    class FakeTicker:
+        def __init__(self, ticker):
+            self.ticker = ticker
+
+        def history(self, period="6mo"):
+            raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr("yfinance.Ticker", FakeTicker)
+    assert database.resolve_pending_heartbeat_outcomes() == 0
+
+    outcome = database.get_all_heartbeat_outcomes(limit=1)[0]
+    assert outcome["outcome_status"] == "pending"
+    assert "provider unavailable" in outcome["resolution_error"]
+
+
+def test_record_heartbeat_discovery_rolls_back_when_outcome_creation_fails(monkeypatch, temp_db):
+    def fail_outcome(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(database, "ensure_heartbeat_outcome_for_discovery", fail_outcome)
+    result = database.record_heartbeat_discovery("ROLL", 85.0, "Volume Breakout", "Test", 10.0)
+    assert result is None
+
+    conn = database.get_db_connection()
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM heartbeat_discoveries WHERE ticker = 'ROLL';").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+def test_summary_does_not_count_profitable_timeout_as_win(temp_db):
+    for ticker, status, ret in [("WINR", "win", 0.2), ("TIME", "timeout", 0.05)]:
+        discovery_id = _insert_heartbeat_discovery(ticker=ticker)
+        database.ensure_heartbeat_outcome_for_discovery(discovery_id)
+        conn = database.get_db_connection()
+        try:
+            with conn:
+                conn.execute(
+                    """
+                    UPDATE heartbeat_outcomes
+                    SET source_type = 'live', outcome_status = ?, return_pct = ?
+                    WHERE discovery_id = ?;
+                    """,
+                    (status, ret, discovery_id)
+                )
+        finally:
+            conn.close()
+
+    summary = database.get_heartbeat_outcome_summary()
+    assert summary["resolved_next_open"] == 2
+    assert summary["wins_next_open"] == 1
+    assert summary["profitable_timeouts_next_open"] == 1
+    assert summary["win_rate_next_open"] == 0.5

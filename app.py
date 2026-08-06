@@ -2338,7 +2338,9 @@ def _draw_management_dashboard_content(subscriber, token):
                 st.caption(
                     f"Audit rows: {hb_summary['total']} total, {hb_summary['live']} live, "
                     f"{hb_summary['reconstructed']} reconstructed, {hb_summary['legacy_migrated']} legacy migrated. "
-                    "Legacy close-entry outcomes are not mixed into next-open performance."
+                    f"Resolved next-open sample: n={hb_summary['resolved_next_open']}; "
+                    f"profitable timeouts: {hb_summary['profitable_timeouts_next_open']}. "
+                    "Experimental audit: legacy close-entry outcomes are not mixed into next-open performance."
                 )
 
                 st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
