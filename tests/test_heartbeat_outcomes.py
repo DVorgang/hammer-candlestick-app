@@ -448,6 +448,43 @@ def test_entry_populates_after_open_before_close_without_outcome_timeout(monkeyp
     assert outcome["outcome_status"] == "pending"
 
 
+def test_entry_stays_pending_before_regular_market_open(monkeypatch, temp_db):
+    discovery_id = _insert_heartbeat_discovery(ticker="PREMKT", discovery_date="2026-07-06")
+    database.ensure_heartbeat_outcome_for_discovery(discovery_id)
+
+    hist = pd.DataFrame({
+        "Date": pd.to_datetime(["2026-07-07"]),
+        "Open": [10.00],
+        "High": [10.20],
+        "Low": [9.90],
+        "Close": [10.10],
+    })
+
+    class FakeTicker:
+        def __init__(self, ticker):
+            self.ticker = ticker
+
+        def history(self, *args, **kwargs):
+            return hist
+
+    from core import market_calendar
+
+    monkeypatch.setattr("yfinance.Ticker", FakeTicker)
+    monkeypatch.setattr(
+        market_calendar,
+        "get_now_eastern",
+        lambda: datetime(2026, 7, 7, 9, 0, tzinfo=market_calendar.get_eastern_timezone())
+    )
+
+    assert database.resolve_pending_heartbeat_outcomes() == 0
+    outcome = database.get_all_heartbeat_outcomes(limit=1)[0]
+    assert outcome["entry_status"] == "pending"
+    assert outcome["modeled_entry_price"] is None
+    assert outcome["modeled_stop"] is None
+    assert outcome["modeled_target"] is None
+    assert outcome["outcome_status"] == "pending"
+
+
 def test_completed_tenth_bar_produces_timeout(monkeypatch, temp_db):
     discovery_id = _insert_heartbeat_discovery(ticker="DONE", discovery_date="2026-07-06")
     database.ensure_heartbeat_outcome_for_discovery(discovery_id)

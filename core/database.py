@@ -1146,6 +1146,18 @@ def _next_regular_session_after(signal_date):
     return None
 
 
+def _regular_session_open_has_occurred(entry_session_date):
+    from core import market_calendar
+
+    now_et = market_calendar.get_now_eastern()
+    if entry_session_date < now_et.date():
+        return True
+    if entry_session_date > now_et.date():
+        return False
+    schedule = market_calendar.get_market_schedule(entry_session_date)
+    return now_et.time() >= schedule["market_open"]
+
+
 def _normalize_history_frame(hist):
     if hist is None or hist.empty:
         return None
@@ -1327,6 +1339,18 @@ def resolve_pending_heartbeat_outcomes(max_hold_bars=10):
                         continue
 
                     entry_date = next_session.strftime("%Y-%m-%d")
+                    if not _regular_session_open_has_occurred(next_session):
+                        with conn:
+                            conn.execute(
+                                """
+                                UPDATE heartbeat_outcomes
+                                SET resolution_data_asof = ?, resolution_error = NULL, updated_at = CURRENT_TIMESTAMP
+                                WHERE id = ?;
+                                """,
+                                (attempted_at, outcome_id)
+                            )
+                        continue
+
                     entry_matches = raw_hist.index[raw_hist["Date_Str"] == entry_date].tolist()
                     if not entry_matches:
                         with conn:
