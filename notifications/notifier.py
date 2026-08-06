@@ -43,6 +43,77 @@ def _format_ai_analysis_section(ai_analysis):
     """
 
 
+COMPANY_PROFILE_CACHE = {}
+
+
+def get_company_profile_info(ticker):
+    """
+    Fetches Sector, Industry, and a concise Business Summary for a ticker via yfinance.
+    Uses an in-memory cache to avoid redundant network calls during batch email generation.
+    """
+    if not ticker or str(ticker).upper().strip() in ("TICKER", "N/A", "NONE"):
+        return {"sector": "N/A", "industry": "", "summary": ""}
+
+    sym = str(ticker).upper().strip()
+    if sym in COMPANY_PROFILE_CACHE:
+        return COMPANY_PROFILE_CACHE[sym]
+
+    profile = {"sector": "N/A", "industry": "", "summary": ""}
+
+    try:
+        import yfinance as yf
+        t = yf.Ticker(sym)
+        inf = t.info or {}
+        sec = inf.get("sector") or inf.get("category") or "N/A"
+        ind = inf.get("industry") or ""
+        summary = inf.get("longBusinessSummary") or inf.get("description") or ""
+
+        if len(summary) > 250:
+            summary = summary[:250].rsplit('.', 1)[0] + '.'
+
+        profile = {
+            "sector": sec,
+            "industry": ind,
+            "summary": summary
+        }
+    except Exception:
+        pass
+
+    COMPANY_PROFILE_CACHE[sym] = profile
+    return profile
+
+
+def _format_company_profile_section(company_info):
+    """
+    Renders a styled HTML card displaying Company Sector, Industry, and Business Summary.
+    """
+    if not company_info:
+        return ""
+
+    sector = html.escape(str(company_info.get("sector", "N/A")))
+    industry = html.escape(str(company_info.get("industry", "")))
+    summary = html.escape(str(company_info.get("summary", "")))
+
+    if sector == "N/A" and not summary:
+        return ""
+
+    ind_str = f" • <em>{industry}</em>" if industry else ""
+    summary_p = f'<p style="margin: 6px 0 0 0; font-size: 12px; line-height: 1.5; color: #475569;">{summary}</p>' if summary else ""
+
+    return f"""
+    <!-- Company Sector & Profile Overview -->
+    <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px;">
+        <div style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px;">
+            🏢 Company Overview & Sector
+        </div>
+        <div style="font-size: 13px; font-weight: 700; color: #1e293b;">
+            Sector: <span style="color: #2563eb;">{sector}</span>{ind_str}
+        </div>
+        {summary_p}
+    </div>
+    """
+
+
 def get_alert_category_and_emoji(pattern_type, score):
     """
     Translates technical pattern and score into the alert hierarchy:
@@ -172,6 +243,9 @@ def format_alert_email(signal, token, base_url="http://localhost:8501"):
     unsubscribe_url = f"{base_url}/?token={token}&unsubscribe=true"
     ai_analysis_section = _format_ai_analysis_section(signal.get("ai_analysis"))
     
+    company_info = get_company_profile_info(ticker)
+    company_profile_section = _format_company_profile_section(company_info)
+    
     html_content = f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #1a202c;">
     
@@ -183,9 +257,11 @@ def format_alert_email(signal, token, base_url="http://localhost:8501"):
     </div>
     
     <!-- Copy / Explanation -->
-    <div style="font-size: 15px; line-height: 1.6; color: #2d3748; margin-bottom: 24px;">
+    <div style="font-size: 15px; line-height: 1.6; color: #2d3748; margin-bottom: 20px;">
         <p>{explanation}</p>
     </div>
+    
+    {company_profile_section}
     
     <!-- Action Plan Box -->
     <div style="background-color: #f7fafc; border-left: 4px solid { '#38a169' if pattern_type == 'Hammer' else '#e53e3e' }; padding: 16px; border-radius: 0 8px 8px 0; margin-bottom: 24px;">
@@ -286,6 +362,9 @@ def format_synergy_alert_email(signal, discovery_info, token, base_url="http://l
     key_drivers = "".join(f"<li>{html.escape(str(k))}</li>" for k in (ai.get("key_catalysts") or [f"Confirmed {pattern} reversal candle", f"RSI oversold rebound at {rsi:.1f}", f"Volume surge {vol_mult:.2f}x avg"]))
     risks = "".join(f"<li>{html.escape(str(r))}</li>" for r in (ai.get("risks") or ["General market volatility", "Stop-loss discipline below Day 1 low"]))
 
+    company_info = get_company_profile_info(ticker)
+    company_profile_section = _format_company_profile_section(company_info)
+
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #ffffff; border: 1px solid #d8b4fe; border-radius: 12px; box-shadow: 0 4px 12px rgba(168, 85, 247, 0.15); color: #1a202c;">
     
@@ -297,6 +376,8 @@ def format_synergy_alert_email(signal, discovery_info, token, base_url="http://l
         <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #ffffff;">{ticker} {pattern} Buy Reversal (${entry_price:.2f})</h1>
         <p style="margin: 6px 0 0 0; font-size: 13px; color: #e9d5ff;">Originally Discovered by AI Growth Scanner • Now Forming Technical Reversal Entry</p>
     </div>
+
+    {company_profile_section}
 
     <!-- AI Growth Discovery Timeline Context Box -->
     <div style="background-color: #faf5ff; border: 1px solid #d8b4fe; border-radius: 10px; padding: 16px; margin-bottom: 20px; font-size: 12px; color: #581c87;">
@@ -408,6 +489,12 @@ def format_technical_digest_email(signals, token, base_url="http://localhost:850
         key_drivers = "".join(f"<li>{html.escape(str(k))}</li>" for k in (ai.get("key_catalysts") or [f"Confirmed {pattern} candlestick", f"RSI 14 at {rsi:.1f}", f"Volume at {vol_mult:.2f}x avg"]))
         risks = "".join(f"<li>{html.escape(str(r))}</li>" for r in (ai.get("risks") or ["Market volatility", "Wait for next session confirmation"]))
         
+        company_info = get_company_profile_info(ticker)
+        sec_name = html.escape(str(company_info.get("sector", "N/A")))
+        comp_summary = html.escape(str(company_info.get("summary", "")))
+        sec_badge = f" | Sector: <strong style='color: #2563eb;'>{sec_name}</strong>" if sec_name != "N/A" else ""
+        comp_summary_p = f'<p style="margin: 0 0 10px 0; font-size: 12px; line-height: 1.4; color: #475569; background: #ffffff; padding: 8px 10px; border-radius: 6px; border: 1px solid #e2e8f0;"><strong>🏢 Company Overview:</strong> {comp_summary}</p>' if comp_summary else ""
+
         cards_html += f"""
         <!-- Watchlist Signal Card #{idx+1} -->
         <div style="background-color: {bg_col}; border: 1px solid {border_col}; border-radius: 10px; padding: 18px; margin-bottom: 20px;">
@@ -420,8 +507,9 @@ def format_technical_digest_email(signals, token, base_url="http://localhost:850
                 </span>
             </div>
             <div style="font-size: 13px; color: #475569; margin-bottom: 10px;">
-                RSI (14-Day): <strong style="color: #0f172a;">{rsi:.1f}</strong> | Volume Surge: <strong style="color: #15803d;">{vol_mult:.2f}x 20-Day MA</strong>
+                RSI (14-Day): <strong style="color: #0f172a;">{rsi:.1f}</strong> | Volume Surge: <strong style="color: #15803d;">{vol_mult:.2f}x 20-Day MA</strong>{sec_badge}
             </div>
+            {comp_summary_p}
             <p style="margin: 0 0 10px 0; font-size: 13px; line-height: 1.5; color: #1e293b; font-weight: 600;">
                 {summary}
             </p>
@@ -507,6 +595,12 @@ def format_growth_digest_email(candidates, token, base_url="http://localhost:850
                 pass
         price_str = f"${float(latest_price):.2f}" if (latest_price and latest_price != "N/A" and float(latest_price) > 0.0) else "N/A"
         
+        company_info = get_company_profile_info(ticker)
+        sec_name = html.escape(str(company_info.get("sector", "N/A")))
+        comp_summary = html.escape(str(company_info.get("summary", "")))
+        sec_badge = f" | Sector: <strong style='color: #2563eb;'>{sec_name}</strong>" if sec_name != "N/A" else ""
+        comp_summary_p = f'<p style="margin: 0 0 10px 0; font-size: 12px; line-height: 1.4; color: #475569; background: #ffffff; padding: 8px 10px; border-radius: 6px; border: 1px solid #cbd5e1;"><strong>🏢 Company Overview:</strong> {comp_summary}</p>' if comp_summary else ""
+
         raw_key_cats = item.get("key_catalysts") or []
         if not raw_key_cats:
             raw_key_cats = [
@@ -557,8 +651,9 @@ def format_growth_digest_email(candidates, token, base_url="http://localhost:850
                 </span>
             </div>
             <div style="font-size: 13px; color: #475569; margin-bottom: 10px;">
-                Stock Price: <strong style="color: #0f172a;">{price_str}</strong> | Volume Surge: <strong style="color: {r_color};">{vol_mult:.2f}x 20-Day MA</strong>
+                Stock Price: <strong style="color: #0f172a;">{price_str}</strong> | Volume Surge: <strong style="color: {r_color};">{vol_mult:.2f}x 20-Day MA</strong>{sec_badge}
             </div>
+            {comp_summary_p}
             <p style="margin: 0 0 10px 0; font-size: 13px; line-height: 1.5; color: #1e293b; font-weight: 600;">
                 {summary}
             </p>
@@ -662,6 +757,9 @@ def format_growth_catalyst_email(growth_res, token, base_url="http://localhost:8
     manage_url = f"{base_url}/?token={token}"
     unsubscribe_url = f"{base_url}/?token={token}&unsubscribe=true"
 
+    company_info = get_company_profile_info(ticker)
+    company_profile_section = _format_company_profile_section(company_info)
+
     return f"""
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);">
     
@@ -673,6 +771,8 @@ def format_growth_catalyst_email(growth_res, token, base_url="http://localhost:8
         <h1 style="margin: 0; font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: -0.02em;">{ticker} — {cat_type}</h1>
         <p style="margin: 6px 0 0 0; font-size: 14px; color: #c7d2fe;">{price_badge_str}Volume Surge: {vol_mult:.2f}x 20-Day Average | AI Engine: {ai_model} | Score: {score:.1f} / 10</p>
     </div>
+
+    {company_profile_section}
 
     
     <!-- Growth Summary Card -->
@@ -754,6 +854,12 @@ def format_heartbeat_digest_email(top_setups, token, base_url="http://localhost:
         bb_width = float(item.get("bb_width_pct") or 8.0)
         above_200 = bool(item.get("above_200sma", False))
         
+        company_info = get_company_profile_info(ticker)
+        sec_name = html.escape(str(company_info.get("sector", "N/A")))
+        comp_summary = html.escape(str(company_info.get("summary", "")))
+        sec_str = f" • Sector: {sec_name}" if sec_name != "N/A" else ""
+        comp_summary_p = f'<p style="margin: 0 0 10px 0; font-size: 12px; line-height: 1.4; color: #475569; background: #f8fafc; padding: 8px 10px; border-radius: 6px; border: 1px solid #e2e8f0;"><strong>🏢 Company Overview:</strong> {comp_summary}</p>' if comp_summary else ""
+
         # Calculate Trade Blueprint Targets
         if cur_price <= 5.00:
             target_pct = 0.32  # +32% Target for Penny Microcaps
@@ -783,7 +889,7 @@ def format_heartbeat_digest_email(top_setups, token, base_url="http://localhost:
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #f1f5f9; padding-bottom: 12px;">
                 <div>
                     <span style="font-size: 22px; font-weight: 800; color: #0f172a; letter-spacing: -0.02em;">#{idx} {ticker}</span>
-                    <span style="font-size: 13px; color: #64748b; margin-left: 8px;">${cur_price:.2f} ({change_pct:+.2f}%)</span>
+                    <span style="font-size: 13px; color: #64748b; margin-left: 8px;">${cur_price:.2f} ({change_pct:+.2f}%){sec_str}</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <span style="background-color: {badge_color}; color: #ffffff; font-size: 10px; font-weight: 800; text-transform: uppercase; padding: 4px 10px; border-radius: 9999px; letter-spacing: 0.05em; display: inline-block;">
@@ -793,6 +899,8 @@ def format_heartbeat_digest_email(top_setups, token, base_url="http://localhost:
                 </div>
             </div>
             
+            {comp_summary_p}
+
             <!-- Quantitative Squeeze Metrics Table -->
             <table style="width: 100%; border-collapse: collapse; margin-bottom: 14px; background-color: #f8fafc; border-radius: 8px; font-size: 12px;">
                 <tr>

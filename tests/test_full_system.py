@@ -92,3 +92,39 @@ def test_10_full_scan_pipeline():
     assert "RSI_14" in df.columns
     signals = scan_ticker_for_signals("MSFT", days_to_scan=5)
     assert isinstance(signals, list)
+
+def test_11_company_profile_in_notifier():
+    from notifications.notifier import get_company_profile_info, format_alert_email, format_growth_digest_email
+    prof = get_company_profile_info("AAPL")
+    assert "sector" in prof and "summary" in prof
+    assert prof["sector"] == "Technology"
+
+    mock_signal = {
+        "ticker": "AAPL",
+        "pattern_type": "Hammer",
+        "confidence_score": 85.0,
+        "rsi_14": 35.0,
+        "vol_mult": 2.0,
+        "day1_date": "2026-08-01",
+        "day1_close": 220.0,
+        "day1_low": 215.0,
+        "day1_high": 222.0,
+        "day2_close": 221.0
+    }
+    html_out = format_alert_email(mock_signal, "testtoken")
+    assert "Company Overview &amp; Sector" in html_out or "Company Overview & Sector" in html_out or "Sector:" in html_out
+    assert "Technology" in html_out
+
+    mock_candidate = [{
+        "ticker": "AAPL",
+        "growth_score": 9.0,
+        "catalyst_type": "Earnings Beat",
+        "headline_summary": "Apple reports record revenue.",
+        "plain_english_takeaway": "Strong growth catalyst.",
+        "vol_mult": 3.0,
+        "latest_price": 220.0
+    }]
+    growth_digest_html = format_growth_digest_email(mock_candidate, "testtoken")
+    assert "Sector:" in growth_digest_html
+    assert "Technology" in growth_digest_html
+
