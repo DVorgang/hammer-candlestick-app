@@ -2310,23 +2310,10 @@ def _draw_management_dashboard_content(subscriber, token):
             with t_m_hb:
                 # 1. Calculate Hypothetical Paper Trading Benchmark Metrics
                 paper_bench_size = database.get_subscriber_paper_position_size(token)
-                all_hb_outcomes = database.get_all_alert_outcomes(limit=100, filter_technical_only=False, pattern_prefix="Heartbeat_")
-                
-                total_paper_profit = 0.0
-                total_resolved = 0
-                total_wins = 0
-                
-                for item in all_hb_outcomes:
-                    r_pct = item.get("return_pct")
-                    st_val = item.get("outcome_status")
-                    if st_val in ("win", "loss", "timeout") and r_pct is not None:
-                        dollar_gain = float(r_pct) * paper_bench_size
-                        total_paper_profit += dollar_gain
-                        total_resolved += 1
-                        if st_val == "win" or dollar_gain > 0:
-                            total_wins += 1
-                            
-                win_rate_val = (total_wins / total_resolved) if total_resolved > 0 else None
+                hb_summary = database.get_heartbeat_outcome_summary()
+                total_resolved = hb_summary["resolved_next_open"]
+                total_paper_profit = hb_summary["return_sum_next_open"] * paper_bench_size
+                win_rate_val = hb_summary["win_rate_next_open"]
                 avg_dollar_gain = (total_paper_profit / total_resolved) if total_resolved > 0 else 0.0
                 
                 st.markdown(f"#### 🎮 Hypothetical Paper Portfolio Performance (${paper_bench_size:,.0f} Benchmark Size)")
@@ -2335,11 +2322,11 @@ def _draw_management_dashboard_content(subscriber, token):
                     p_color = "#38df88" if total_paper_profit >= 0 else "#f87171"
                     p_sign = "+" if total_paper_profit >= 0 else ""
                     st.markdown(f'<div class="metric-value" style="color: {p_color};">{p_sign}${total_paper_profit:,.2f}</div>', unsafe_allow_html=True)
-                    st.markdown(f'<div class="metric-label">Total Paper Net Profit (${paper_bench_size:,.0f} Size)</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="metric-label">Next-Open Net Profit (${paper_bench_size:,.0f} Size)</div>', unsafe_allow_html=True)
                 with p_c2:
                     wr_label = f"{win_rate_val:.1%}" if win_rate_val is not None else "N/A"
                     st.markdown(f'<div class="metric-value" style="color: #38df88;">{wr_label}</div>', unsafe_allow_html=True)
-                    st.markdown('<div class="metric-label">Heartbeat Win Rate</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="metric-label">Next-Open Win Rate</div>', unsafe_allow_html=True)
                 with p_c3:
                     avg_color = "#38df88" if avg_dollar_gain >= 0 else "#f87171"
                     avg_sign = "+" if avg_dollar_gain >= 0 else ""
@@ -2347,7 +2334,14 @@ def _draw_management_dashboard_content(subscriber, token):
                     st.markdown('<div class="metric-label">Avg Return per $ Setup</div>', unsafe_allow_html=True)
                 with p_c4:
                     st.markdown(f'<div class="metric-value">{total_resolved}</div>', unsafe_allow_html=True)
-                    st.markdown('<div class="metric-label">Total Resolved Trades</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="metric-label">Resolved Next-Open Trades</div>', unsafe_allow_html=True)
+                st.caption(
+                    f"Audit rows: {hb_summary['total']} total, {hb_summary['live']} live, "
+                    f"{hb_summary['reconstructed']} reconstructed, {hb_summary['legacy_migrated']} legacy migrated. "
+                    f"Resolved next-open sample: n={hb_summary['resolved_next_open']}; "
+                    f"profitable timeouts: {hb_summary['profitable_timeouts_next_open']}. "
+                    "Experimental audit: legacy close-entry outcomes are not mixed into next-open performance."
+                )
 
                 st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
                 st.write("**💓 Heartbeat Volatility Expansion & 5-Day Cooldown Audit Matrix:**")
@@ -2370,15 +2364,15 @@ def _draw_management_dashboard_content(subscriber, token):
                     })
                     st.dataframe(h_df[["Ticker", "Conviction Score", "Breakout Catalyst", "Discovered Date", "Initial Price", "Last Featured", "Cooldown Status", "Eligible Again", "Monitoring Status"]], use_container_width=True, hide_index=True)
 
-                hb_outcomes = database.get_all_alert_outcomes(limit=25, filter_technical_only=False, pattern_prefix="Heartbeat_")
-                st.write("**Heartbeat Alert Outcome Log & Paper Trade Returns:**")
+                hb_outcomes = database.get_all_heartbeat_outcomes(limit=25)
+                st.write("**Canonical Heartbeat Outcome Log & Paper Trade Returns:**")
                 if not hb_outcomes:
                     st.info("No Heartbeat alert outcomes have been recorded yet.")
                 else:
                     hb_out_df = pd.DataFrame(hb_outcomes)
-                    hb_out_df["Entry"] = hb_out_df["entry_price"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
-                    hb_out_df["Stop Loss"] = hb_out_df["stop_loss"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
-                    hb_out_df["Target"] = hb_out_df["profit_target"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
+                    hb_out_df["Entry"] = hb_out_df["modeled_entry_price"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "Pending")
+                    hb_out_df["Stop Loss"] = hb_out_df["modeled_stop"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "Pending")
+                    hb_out_df["Target"] = hb_out_df["modeled_target"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "Pending")
                     hb_out_df["Exit Price"] = hb_out_df["exit_price"].map(lambda x: f"${x:.2f}" if (pd.notna(x) and x is not None) else "N/A")
                     hb_out_df["Return"] = hb_out_df["return_pct"].map(lambda x: f"{x:.2%}" if (pd.notna(x) and x is not None) else "N/A")
                     hb_out_df["Paper Size"] = f"${paper_bench_size:,.2f}"
@@ -2388,10 +2382,11 @@ def _draw_management_dashboard_content(subscriber, token):
                     hb_out_df["Status"] = hb_out_df["outcome_status"].map(lambda x: "WIN (Target Hit)" if x == "win" else ("LOSS (Stop Hit)" if x == "loss" else ("TIMEOUT" if x == "timeout" else "Pending Evaluation")))
                     hb_out_df = hb_out_df.rename(columns={
                         "ticker": "Ticker",
-                        "pattern_type": "Pattern",
-                        "day1_date": "Setup Date"
+                        "source_type": "Source",
+                        "entry_model_version": "Entry Model",
+                        "signal_date": "Signal Date"
                     })
-                    st.dataframe(hb_out_df[["Ticker", "Pattern", "Setup Date", "Entry", "Stop Loss", "Target", "Status", "Exit Price", "Return", "Paper Size", "Net Return ($)"]], use_container_width=True, hide_index=True)
+                    st.dataframe(hb_out_df[["Ticker", "Source", "Entry Model", "Signal Date", "Entry", "Stop Loss", "Target", "Status", "Exit Price", "Return", "Paper Size", "Net Return ($)"]], use_container_width=True, hide_index=True)
 
 
         # SECTION 4: EXPANDABLE DROPDOWNS FOR LOGS & UTILITIES

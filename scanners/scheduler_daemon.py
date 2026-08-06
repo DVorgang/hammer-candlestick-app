@@ -78,6 +78,7 @@ def start_daemon_loop():
                 logging.info("📈 Market Hours Active — Triggering Growth & Heartbeat Intraday Scans (Buffer Mode)...")
                 growth_scanner.run_growth_scan(trigger_type="24_7_daemon")
                 heartbeat_scanner.run_heartbeat_scan(trigger_type="24_7_daemon")
+                database.resolve_pending_heartbeat_outcomes()
                 database.resolve_pending_alert_outcomes()
                 sleep_seconds = INTERVAL_MARKET_MINUTES * 60
             
@@ -85,6 +86,7 @@ def start_daemon_loop():
             elif m_status["is_post_close"] and last_daily_scan_date != today_str:
                 logging.info("🔔 Market Post-Close Window — Triggering Full Daily Candlestick Pattern Scan...")
                 daily_scanner.run_daily_scan(trigger_type="24_7_daemon")
+                database.resolve_pending_heartbeat_outcomes()
                 database.resolve_pending_alert_outcomes()
                 last_daily_scan_date = today_str
                 sleep_seconds = INTERVAL_OFFMARKET_MINUTES * 60
@@ -98,6 +100,7 @@ def start_daemon_loop():
             else:
                 # Off-Market Hours / Weekends / Holidays
                 logging.info("🌙 Off-Market Hours / Weekend / Holiday — Maintaining heartbeat and waiting.")
+                database.resolve_pending_heartbeat_outcomes()
                 database.resolve_pending_alert_outcomes()
                 sleep_seconds = INTERVAL_OFFMARKET_MINUTES * 60
 

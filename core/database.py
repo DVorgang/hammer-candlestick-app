@@ -7,6 +7,12 @@ import random
 from datetime import datetime, timedelta
 
 DB_FILE = os.getenv("DATABASE_PATH", "sentinel.db")
+HEARTBEAT_ENTRY_MODEL_VERSION = "next_open_v1"
+HEARTBEAT_OUTCOME_RULE_VERSION = "heartbeat_v1"
+HEARTBEAT_MODELED_ENTRY_RULE = "next_regular_session_open_after_signal_session"
+HEARTBEAT_LEGACY_ENTRY_MODEL_VERSION = "legacy_precanonical_v0"
+HEARTBEAT_LEGACY_OUTCOME_RULE_VERSION = "legacy_heartbeat_v0"
+HEARTBEAT_LEGACY_ENTRY_RULE = "legacy_close_or_day3_open"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -122,6 +128,44 @@ def init_db():
         UNIQUE(ticker, discovery_date)
     );
     """
+    create_heartbeat_outcomes_table = """
+    CREATE TABLE IF NOT EXISTS heartbeat_outcomes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        discovery_id INTEGER NOT NULL UNIQUE,
+        ticker TEXT NOT NULL,
+        signal_date TEXT NOT NULL,
+        signal_timestamp TEXT,
+        signal_price REAL,
+        delivery_first_at TEXT,
+        modeled_entry_rule TEXT NOT NULL,
+        entry_model_version TEXT NOT NULL,
+        entry_status TEXT NOT NULL DEFAULT 'pending',
+        entry_date TEXT,
+        modeled_entry_price REAL,
+        advertised_stop REAL,
+        advertised_target REAL,
+        modeled_stop REAL,
+        modeled_target REAL,
+        outcome_status TEXT NOT NULL DEFAULT 'pending',
+        exit_date TEXT,
+        exit_price REAL,
+        return_pct REAL,
+        mfe_pct REAL,
+        mae_pct REAL,
+        same_bar_ambiguous INTEGER DEFAULT 0,
+        scoring_version TEXT,
+        outcome_rule_version TEXT NOT NULL,
+        source_type TEXT NOT NULL,
+        legacy_sent_alert_id INTEGER REFERENCES sent_alerts(id),
+        resolution_data_asof TEXT,
+        resolution_error TEXT,
+        reconstruction_notes TEXT,
+        is_backfilled INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (discovery_id) REFERENCES heartbeat_discoveries(id) ON DELETE RESTRICT
+    );
+    """
     create_paper_accounts_table = """
     CREATE TABLE IF NOT EXISTS paper_accounts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,6 +204,7 @@ def init_db():
             conn.execute(create_scheduler_state_table)
             conn.execute(create_growth_discoveries_table)
             conn.execute(create_heartbeat_discoveries_table)
+            conn.execute(create_heartbeat_outcomes_table)
             conn.execute(create_paper_accounts_table)
             conn.execute(create_paper_trades_table)
 
@@ -434,6 +479,8 @@ def mark_digest_success(digest_delivery_id, discovery_items):
                     conn.execute("UPDATE growth_discoveries SET digest_status = 'DELIVERED' WHERE id = ?", (s_id,))
                 elif s_type == "heartbeat":
                     conn.execute("UPDATE heartbeat_discoveries SET digest_status = 'DELIVERED' WHERE id = ?", (s_id,))
+                    ensure_heartbeat_outcome_for_discovery(s_id, source_type="live", conn=conn)
+                    sync_heartbeat_delivery_first_at(s_id, conn=conn)
                 elif s_type == "technical":
                     conn.execute("UPDATE sent_alerts SET digest_status = 'DELIVERED' WHERE id = ?", (s_id,))
         return True
@@ -932,6 +979,525 @@ def record_sent_alert(subscriber_id, signal):
         conn.close()
 
 
+def _round_money(value):
+    if value is None:
+        return None
+    return round(float(value), 2)
+
+
+def calculate_heartbeat_modeled_levels(modeled_entry_price):
+    """
+    Applies the versioned Heartbeat v1 stop/target model to a modeled fill price.
+    """
+    entry = float(modeled_entry_price)
+    if entry <= 5:
+        return _round_money(entry * 0.935), _round_money(entry * 1.32)
+    return _round_money(entry * 0.95), _round_money(entry * 1.20)
+
+
+def ensure_heartbeat_outcome_for_discovery(discovery_id, source_type="live", legacy_sent_alert_id=None,
+                                           is_backfilled=0, reconstruction_notes=None, conn=None):
+    """
+    Ensures a Heartbeat discovery has exactly one canonical, versioned shadow outcome.
+    Existing outcomes are returned without being reset.
+    """
+    owns_conn = conn is None
+    conn = conn or get_db_connection()
+    try:
+        discovery = conn.execute(
+            "SELECT * FROM heartbeat_discoveries WHERE id = ?;",
+            (discovery_id,)
+        ).fetchone()
+        if not discovery:
+            return None
+
+        existing = conn.execute(
+            "SELECT * FROM heartbeat_outcomes WHERE discovery_id = ?;",
+            (discovery_id,)
+        ).fetchone()
+        if existing:
+            return dict(existing)
+
+        now_str = datetime.now().isoformat()
+        signal_date = str(discovery["discovery_date"])[:10]
+        signal_timestamp = discovery["created_at"] or now_str
+        if source_type == "legacy_migrated":
+            modeled_entry_rule = HEARTBEAT_LEGACY_ENTRY_RULE
+            entry_model_version = HEARTBEAT_LEGACY_ENTRY_MODEL_VERSION
+            outcome_rule_version = HEARTBEAT_LEGACY_OUTCOME_RULE_VERSION
+        else:
+            modeled_entry_rule = HEARTBEAT_MODELED_ENTRY_RULE
+            entry_model_version = HEARTBEAT_ENTRY_MODEL_VERSION
+            outcome_rule_version = HEARTBEAT_OUTCOME_RULE_VERSION
+
+        def insert_outcome():
+            conn.execute(
+                """
+                INSERT INTO heartbeat_outcomes (
+                    discovery_id, ticker, signal_date, signal_timestamp, signal_price,
+                    modeled_entry_rule, entry_model_version, entry_status, outcome_status,
+                    scoring_version, outcome_rule_version, source_type, legacy_sent_alert_id,
+                    reconstruction_notes, is_backfilled, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 'pending', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+                """,
+                (
+                    discovery_id,
+                    discovery["ticker"],
+                    signal_date,
+                    signal_timestamp,
+                    discovery["initial_price"],
+                    modeled_entry_rule,
+                    entry_model_version,
+                    "legacy_unknown" if source_type == "legacy_migrated" else None,
+                    outcome_rule_version,
+                    source_type,
+                    legacy_sent_alert_id,
+                    reconstruction_notes,
+                    int(is_backfilled),
+                )
+            )
+
+        if owns_conn:
+            with conn:
+                insert_outcome()
+        else:
+            insert_outcome()
+
+        row = conn.execute(
+            "SELECT * FROM heartbeat_outcomes WHERE discovery_id = ?;",
+            (discovery_id,)
+        ).fetchone()
+        return dict(row) if row else None
+    except sqlite3.Error as e:
+        logging.error(f"Database error ensuring heartbeat outcome for discovery {discovery_id}: {e}")
+        return None
+    finally:
+        if owns_conn:
+            conn.close()
+
+
+def sync_heartbeat_delivery_first_at(discovery_id, conn=None):
+    """
+    Sets delivery_first_at to the earliest successful digest delivery for this discovery.
+    """
+    owns_conn = conn is None
+    conn = conn or get_db_connection()
+    try:
+        def update_delivery():
+            conn.execute(
+                """
+                UPDATE heartbeat_outcomes
+                SET delivery_first_at = (
+                    SELECT MIN(d.delivered_at)
+                    FROM digest_discovery_items i
+                    JOIN digest_deliveries d ON i.digest_delivery_id = d.id
+                    WHERE i.source_type = 'heartbeat'
+                      AND i.source_id = heartbeat_outcomes.discovery_id
+                      AND d.status = 'SUCCESS'
+                      AND d.delivered_at IS NOT NULL
+                ),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE discovery_id = ?
+                  AND delivery_first_at IS NULL
+                  AND EXISTS (
+                    SELECT 1
+                    FROM digest_discovery_items i
+                    JOIN digest_deliveries d ON i.digest_delivery_id = d.id
+                    WHERE i.source_type = 'heartbeat'
+                      AND i.source_id = heartbeat_outcomes.discovery_id
+                      AND d.status = 'SUCCESS'
+                      AND d.delivered_at IS NOT NULL
+                  );
+                """,
+                (discovery_id,)
+            )
+        if owns_conn:
+            with conn:
+                update_delivery()
+        else:
+            update_delivery()
+        return True
+    except sqlite3.Error as e:
+        logging.error(f"Database error syncing heartbeat delivery_first_at for {discovery_id}: {e}")
+        return False
+    finally:
+        if owns_conn:
+            conn.close()
+
+
+def _parse_date_only(value):
+    if value is None:
+        return None
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def _next_regular_session_after(signal_date):
+    from core import market_calendar
+
+    current = signal_date + timedelta(days=1)
+    for _ in range(14):
+        if market_calendar.is_trading_day(current):
+            return current
+        current += timedelta(days=1)
+    return None
+
+
+def _regular_session_open_has_occurred(entry_session_date):
+    from core import market_calendar
+
+    now_et = market_calendar.get_now_eastern()
+    if entry_session_date < now_et.date():
+        return True
+    if entry_session_date > now_et.date():
+        return False
+    schedule = market_calendar.get_market_schedule(entry_session_date)
+    return now_et.time() >= schedule["market_open"]
+
+
+def _normalize_history_frame(hist):
+    if hist is None or hist.empty:
+        return None
+    df = hist.reset_index()
+    date_col = "Date" if "Date" in df.columns else df.columns[0]
+    df["Date_Str"] = df[date_col].astype(str).str[:10]
+    return df
+
+
+def _completed_regular_session_history_from_frame(df):
+    from core import market_calendar
+
+    if df is None:
+        return None
+
+    now_et = market_calendar.get_now_eastern()
+    completed_dates = []
+    for _, row in df.iterrows():
+        bar_date = _parse_date_only(row["Date_Str"])
+        if not bar_date:
+            completed_dates.append(False)
+            continue
+        if bar_date < now_et.date():
+            completed_dates.append(True)
+            continue
+        if bar_date > now_et.date():
+            completed_dates.append(False)
+            continue
+        schedule = market_calendar.get_market_schedule(bar_date)
+        completed_dates.append(now_et.time() > schedule["market_close"])
+    return df.loc[completed_dates].copy()
+
+
+def _fetch_heartbeat_history(ticker, signal_date):
+    import yfinance as yf
+
+    start_date = signal_date - timedelta(days=10) if signal_date else None
+    if start_date:
+        return yf.Ticker(ticker).history(start=start_date.strftime("%Y-%m-%d"), auto_adjust=False)
+    return yf.Ticker(ticker).history(period="6mo", auto_adjust=False)
+
+
+def _resolve_heartbeat_bars(entry, stop, target, future_bars, max_hold_bars=10):
+    status = "pending"
+    exit_price = None
+    exit_date = None
+    return_pct = None
+    same_bar_ambiguous = 0
+    max_high = entry
+    min_low = entry
+    resolution_bar_index = None
+
+    for idx, bar in future_bars.iloc[:max_hold_bars].iterrows():
+        b_high = float(bar["High"])
+        b_low = float(bar["Low"])
+        b_date = str(bar["Date_Str"])
+        max_high = max(max_high, b_high)
+        min_low = min(min_low, b_low)
+
+        hit_stop = b_low <= stop
+        hit_target = b_high >= target
+        if hit_stop and hit_target:
+            same_bar_ambiguous = 1
+
+        if hit_stop:
+            status = "loss"
+            exit_price = stop
+            exit_date = b_date
+            return_pct = (stop - entry) / entry
+            resolution_bar_index = idx
+            break
+        if hit_target:
+            status = "win"
+            exit_price = target
+            exit_date = b_date
+            return_pct = (target - entry) / entry
+            resolution_bar_index = idx
+            break
+
+    if status == "pending" and len(future_bars) >= max_hold_bars:
+        last_bar = future_bars.iloc[max_hold_bars - 1]
+        max_high = max(max_high, float(last_bar["High"]))
+        min_low = min(min_low, float(last_bar["Low"]))
+        status = "timeout"
+        exit_price = float(last_bar["Close"])
+        exit_date = str(last_bar["Date_Str"])
+        return_pct = (exit_price - entry) / entry
+        resolution_bar_index = future_bars.index[max_hold_bars - 1]
+
+    if resolution_bar_index is None:
+        return {
+            "outcome_status": "pending",
+            "mfe_pct": round((max_high - entry) / entry, 4),
+            "mae_pct": round((min_low - entry) / entry, 4),
+            "same_bar_ambiguous": same_bar_ambiguous,
+        }
+
+    return {
+        "outcome_status": status,
+        "exit_price": _round_money(exit_price),
+        "exit_date": exit_date,
+        "return_pct": round(return_pct, 4) if return_pct is not None else None,
+        "mfe_pct": round((max_high - entry) / entry, 4),
+        "mae_pct": round((min_low - entry) / entry, 4),
+        "same_bar_ambiguous": same_bar_ambiguous,
+    }
+
+
+def resolve_pending_heartbeat_outcomes(max_hold_bars=10):
+    """
+    Resolves canonical Heartbeat outcomes using next regular-session open entries.
+    Leaves rows pending when market data is not yet available.
+    """
+    conn = get_db_connection()
+    attempted_at = datetime.now().isoformat()
+    try:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM heartbeat_outcomes
+            WHERE outcome_status = 'pending'
+            ORDER BY id ASC;
+            """
+        ).fetchall()
+        if not rows:
+            return 0
+
+        resolved_count = 0
+        for row in rows:
+            outcome = dict(row)
+            outcome_id = outcome["id"]
+            ticker = outcome["ticker"]
+            try:
+                signal_date = _parse_date_only(outcome["signal_date"])
+                raw_hist = _normalize_history_frame(_fetch_heartbeat_history(ticker, signal_date))
+                if raw_hist is None:
+                    with conn:
+                        conn.execute(
+                            """
+                            UPDATE heartbeat_outcomes
+                            SET resolution_data_asof = ?, resolution_error = ?, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?;
+                            """,
+                            (attempted_at, "No market data returned by provider.", outcome_id)
+                        )
+                    continue
+                completed_hist = _completed_regular_session_history_from_frame(raw_hist)
+
+                entry_status = outcome["entry_status"]
+                entry_date = outcome["entry_date"]
+                entry = outcome["modeled_entry_price"]
+                stop = outcome["modeled_stop"]
+                target = outcome["modeled_target"]
+
+                if entry_status == "pending":
+                    if not signal_date:
+                        with conn:
+                            conn.execute(
+                                """
+                                UPDATE heartbeat_outcomes
+                                SET resolution_data_asof = ?, resolution_error = ?, updated_at = CURRENT_TIMESTAMP
+                                WHERE id = ?;
+                                """,
+                                (attempted_at, "Unable to parse signal_date for next-open reconstruction.", outcome_id)
+                            )
+                        continue
+
+                    next_session = _next_regular_session_after(signal_date)
+                    if not next_session:
+                        with conn:
+                            conn.execute(
+                                """
+                                UPDATE heartbeat_outcomes
+                                SET resolution_data_asof = ?, resolution_error = ?, updated_at = CURRENT_TIMESTAMP
+                                WHERE id = ?;
+                                """,
+                                (attempted_at, "Unable to determine next regular session.", outcome_id)
+                            )
+                        continue
+
+                    entry_date = next_session.strftime("%Y-%m-%d")
+                    if not _regular_session_open_has_occurred(next_session):
+                        with conn:
+                            conn.execute(
+                                """
+                                UPDATE heartbeat_outcomes
+                                SET resolution_data_asof = ?, resolution_error = NULL, updated_at = CURRENT_TIMESTAMP
+                                WHERE id = ?;
+                                """,
+                                (attempted_at, outcome_id)
+                            )
+                        continue
+
+                    entry_matches = raw_hist.index[raw_hist["Date_Str"] == entry_date].tolist()
+                    if not entry_matches:
+                        with conn:
+                            conn.execute(
+                                """
+                                UPDATE heartbeat_outcomes
+                                SET resolution_data_asof = ?, resolution_error = NULL, updated_at = CURRENT_TIMESTAMP
+                                WHERE id = ?;
+                                """,
+                                (attempted_at, outcome_id)
+                            )
+                        continue
+
+                    entry_idx = entry_matches[0]
+                    entry = _round_money(raw_hist.loc[entry_idx, "Open"])
+                    stop, target = calculate_heartbeat_modeled_levels(entry)
+                    with conn:
+                        conn.execute(
+                            """
+                            UPDATE heartbeat_outcomes
+                            SET entry_status = 'filled',
+                                entry_date = ?,
+                                modeled_entry_price = ?,
+                                modeled_stop = ?,
+                                modeled_target = ?,
+                                resolution_data_asof = ?,
+                                resolution_error = NULL,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?;
+                            """,
+                            (entry_date, entry, stop, target, attempted_at, outcome_id)
+                        )
+                else:
+                    if entry is None or stop is None or target is None or not entry_date:
+                        with conn:
+                            conn.execute(
+                                """
+                                UPDATE heartbeat_outcomes
+                                SET resolution_data_asof = ?, resolution_error = ?, updated_at = CURRENT_TIMESTAMP
+                                WHERE id = ?;
+                                """,
+                                (attempted_at, "Filled outcome is missing entry/stop/target data.", outcome_id)
+                            )
+                        continue
+                    entry = float(entry)
+                    stop = float(stop)
+                    target = float(target)
+
+                if completed_hist is None:
+                    with conn:
+                        conn.execute(
+                            """
+                            UPDATE heartbeat_outcomes
+                            SET resolution_data_asof = ?, resolution_error = NULL, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?;
+                            """,
+                            (attempted_at, outcome_id)
+                        )
+                    continue
+
+                entry_indices = completed_hist.index[completed_hist["Date_Str"] == entry_date].tolist()
+                if not entry_indices:
+                    with conn:
+                        conn.execute(
+                            """
+                            UPDATE heartbeat_outcomes
+                            SET resolution_data_asof = ?, resolution_error = NULL, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?;
+                            """,
+                            (attempted_at, outcome_id)
+                        )
+                    continue
+
+                future_bars = completed_hist.iloc[entry_indices[0]: entry_indices[0] + max_hold_bars]
+                resolution = _resolve_heartbeat_bars(float(entry), float(stop), float(target), future_bars, max_hold_bars=max_hold_bars)
+                if resolution["outcome_status"] == "pending":
+                    with conn:
+                        conn.execute(
+                            """
+                            UPDATE heartbeat_outcomes
+                            SET mfe_pct = ?,
+                                mae_pct = ?,
+                                same_bar_ambiguous = ?,
+                                resolution_data_asof = ?,
+                                resolution_error = NULL,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?;
+                            """,
+                            (
+                                resolution.get("mfe_pct"),
+                                resolution.get("mae_pct"),
+                                int(resolution["same_bar_ambiguous"]),
+                                attempted_at,
+                                outcome_id,
+                            )
+                        )
+                    continue
+
+                with conn:
+                    conn.execute(
+                        """
+                        UPDATE heartbeat_outcomes
+                        SET outcome_status = ?,
+                            exit_date = ?,
+                            exit_price = ?,
+                            return_pct = ?,
+                            mfe_pct = ?,
+                            mae_pct = ?,
+                            same_bar_ambiguous = ?,
+                            resolution_data_asof = ?,
+                            resolution_error = NULL,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?;
+                        """,
+                        (
+                            resolution["outcome_status"],
+                            resolution["exit_date"],
+                            resolution["exit_price"],
+                            resolution["return_pct"],
+                            resolution["mfe_pct"],
+                            resolution["mae_pct"],
+                            int(resolution["same_bar_ambiguous"]),
+                            attempted_at,
+                            outcome_id,
+                        )
+                    )
+                resolved_count += 1
+            except Exception as e:
+                logging.error(f"Error resolving canonical heartbeat outcome {outcome_id} ({ticker}): {e}")
+                with conn:
+                    conn.execute(
+                        """
+                        UPDATE heartbeat_outcomes
+                        SET resolution_data_asof = ?, resolution_error = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?;
+                        """,
+                        (attempted_at, str(e), outcome_id)
+                    )
+
+        return resolved_count
+    except sqlite3.Error as e:
+        logging.error(f"Database error resolving canonical heartbeat outcomes: {e}")
+        return 0
+    finally:
+        conn.close()
+
+
 def resolve_pending_alert_outcomes():
     """
     Evaluates all pending alerts against post-alert daily price history to resolve outcomes:
@@ -1156,6 +1722,102 @@ def get_all_alert_outcomes(limit=50, filter_technical_only=True, pattern_prefix=
     except sqlite3.Error as e:
         logging.error(f"Database error fetching alert outcomes: {e}")
         return []
+    finally:
+        conn.close()
+
+
+def get_all_heartbeat_outcomes(limit=50):
+    """
+    Fetches canonical Heartbeat outcomes for audit reporting.
+    """
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT
+                o.*,
+                h.catalyst_type,
+                h.conviction_score
+            FROM heartbeat_outcomes o
+            LEFT JOIN heartbeat_discoveries h ON h.id = o.discovery_id
+            ORDER BY o.id DESC
+            LIMIT ?;
+            """,
+            (limit,)
+        ).fetchall()
+        return [dict(row) for row in rows]
+    except sqlite3.Error as e:
+        logging.error(f"Database error fetching canonical heartbeat outcomes: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def get_heartbeat_outcome_summary():
+    """
+    Returns methodology-aware Heartbeat outcome counts and comparable next-open performance.
+    """
+    conn = get_db_connection()
+    try:
+        rows = conn.execute("SELECT * FROM heartbeat_outcomes;").fetchall()
+        summary = {
+            "total": len(rows),
+            "live": 0,
+            "legacy_migrated": 0,
+            "reconstructed": 0,
+            "pending": 0,
+            "filled": 0,
+            "not_filled": 0,
+            "resolved_next_open": 0,
+            "wins_next_open": 0,
+            "profitable_timeouts_next_open": 0,
+            "return_sum_next_open": 0.0,
+        }
+        for row in rows:
+            source_type = row["source_type"]
+            if source_type in summary:
+                summary[source_type] += 1
+            if row["entry_status"] == "filled":
+                summary["filled"] += 1
+            elif row["entry_status"] == "not_filled":
+                summary["not_filled"] += 1
+            if row["outcome_status"] == "pending":
+                summary["pending"] += 1
+
+            comparable = source_type in ("live", "reconstructed")
+            resolved = row["outcome_status"] in ("win", "loss", "timeout")
+            if comparable and resolved and row["return_pct"] is not None:
+                summary["resolved_next_open"] += 1
+                summary["return_sum_next_open"] += float(row["return_pct"])
+                if row["outcome_status"] == "win":
+                    summary["wins_next_open"] += 1
+                elif row["outcome_status"] == "timeout" and float(row["return_pct"]) > 0:
+                    summary["profitable_timeouts_next_open"] += 1
+
+        if summary["resolved_next_open"]:
+            summary["win_rate_next_open"] = round(summary["wins_next_open"] / summary["resolved_next_open"], 4)
+            summary["avg_return_next_open"] = round(summary["return_sum_next_open"] / summary["resolved_next_open"], 4)
+        else:
+            summary["win_rate_next_open"] = None
+            summary["avg_return_next_open"] = 0.0
+        return summary
+    except sqlite3.Error as e:
+        logging.error(f"Database error fetching heartbeat outcome summary: {e}")
+        return {
+            "total": 0,
+            "live": 0,
+            "legacy_migrated": 0,
+            "reconstructed": 0,
+            "pending": 0,
+            "filled": 0,
+            "not_filled": 0,
+            "resolved_next_open": 0,
+            "wins_next_open": 0,
+            "profitable_timeouts_next_open": 0,
+            "return_sum_next_open": 0.0,
+            "win_rate_next_open": None,
+            "avg_return_next_open": 0.0,
+        }
     finally:
         conn.close()
 
@@ -1486,6 +2148,7 @@ def record_heartbeat_discovery(ticker, conviction_score, catalyst_type, headline
     """
     ticker = ticker.strip().upper()
     now_date = datetime.now().strftime("%Y-%m-%d")
+    now_timestamp = datetime.now().isoformat()
     conn = get_db_connection()
     k_json = json.dumps(key_catalysts or [])
     r_json = json.dumps(risks or [])
@@ -1509,8 +2172,11 @@ def record_heartbeat_discovery(ticker, conviction_score, catalyst_type, headline
                     """,
                     (float(conviction_score), catalyst_type, headline_summary, now_date, k_json, r_json, plain_english_takeaway, n_json, badge_tag, badge_color, vol_mult, bb_width_pct, 1 if above_200sma else 0, existing["id"])
                 )
+                discovery_id = existing["id"]
+                created = False
+                updated = True
             else:
-                conn.execute(
+                cursor = conn.execute(
                     """
                     INSERT INTO heartbeat_discoveries 
                     (ticker, discovery_date, initial_price, conviction_score, catalyst_type, headline_summary, last_featured_date, key_catalysts_json, risks_json, plain_english_takeaway, news_articles_json, badge_tag, badge_color, vol_mult, bb_width_pct, above_200sma)
@@ -1518,10 +2184,21 @@ def record_heartbeat_discovery(ticker, conviction_score, catalyst_type, headline
                     """,
                     (ticker, now_date, initial_price, float(conviction_score), catalyst_type, headline_summary, now_date, k_json, r_json, plain_english_takeaway, n_json, badge_tag, badge_color, vol_mult, bb_width_pct, 1 if above_200sma else 0)
                 )
-        return True
+                discovery_id = cursor.lastrowid
+                created = True
+                updated = False
+            outcome = ensure_heartbeat_outcome_for_discovery(discovery_id, source_type="live", conn=conn)
+            if not outcome:
+                raise sqlite3.Error(f"Failed to create canonical heartbeat outcome for discovery {discovery_id}")
+        return {
+            "discovery_id": discovery_id,
+            "created": created,
+            "updated": updated,
+            "signal_timestamp": now_timestamp,
+        }
     except sqlite3.Error as e:
         logging.error(f"Database error recording heartbeat discovery for {ticker}: {e}")
-        return False
+        return None
     finally:
         conn.close()
 
