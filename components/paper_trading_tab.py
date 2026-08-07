@@ -69,7 +69,12 @@ def render_edit_trade_dialog(trade, key_prefix):
     t_id = trade["id"]
     sym = trade["ticker"]
     
-    st.write(f"Modify purchase date or position size for **{sym}**. Upon saving, the entry price will be **automatically recalculated** from historical market data.")
+    st.markdown(f"""
+    <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid #38bdf8; border-radius: 8px; padding: 12px; margin-bottom: 12px; text-align: center;">
+        <div style="font-size: 1.1rem; font-weight: 800; color: #38bdf8;">✏️ Edit Position: {sym}</div>
+        <div style="font-size: 0.78rem; color: #94a3b8; margin-top: 2px;">Modify purchase date or share size for <strong>{sym}</strong>. Historical price is auto-calculated.</div>
+    </div>
+    """, unsafe_allow_html=True)
     
     raw_dt_str = str(trade.get("entry_date", ""))
     try:
@@ -124,20 +129,34 @@ def render_edit_trade_dialog(trade, key_prefix):
 
     # ─── LIVE AUTO-CALCULATED PRICE PREVIEW CARD ───
     auto_price = database.fetch_historical_price_on_date(sym, new_date_str)
-    calc_price = auto_price if auto_price is not None else float(trade["entry_price"])
+    earliest_date_str, earliest_price = database.fetch_earliest_trading_date(sym)
+    is_pre_ipo = False
+    if earliest_date_str and new_date_str < earliest_date_str:
+        is_pre_ipo = True
 
     if auto_price is not None:
+        calc_price = auto_price
         st.markdown(f"""
         <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #38df88; border-radius: 8px; padding: 12px; margin: 12px 0; text-align: center;">
-            <div style="font-size:0.75rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em;">Auto-Calculated Historical Share Price</div>
+            <div style="font-size:0.75rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em;">Auto-Calculated Historical Price for {sym}</div>
             <div style="font-size: 1.6rem; font-weight: 800; color: #38df88; margin-top: 4px;">${calc_price:,.2f}</div>
             <div style="font-size:0.72rem; color:#94a3b8; margin-top:2px;">Market closing price for <strong>{sym}</strong> on <strong>{new_date_str}</strong></div>
         </div>
         """, unsafe_allow_html=True)
+    elif is_pre_ipo:
+        calc_price = float(trade["entry_price"])
+        st.markdown(f"""
+        <div style="background: rgba(248, 113, 113, 0.12); border: 1px solid #f87171; border-radius: 8px; padding: 12px; margin: 12px 0; text-align: center;">
+            <div style="font-size:0.75rem; font-weight:700; color:#f87171; text-transform:uppercase;">⚠️ Pre-IPO Date Selected for {sym}</div>
+            <div style="font-size: 0.85rem; font-weight: 700; color: #f87171; margin-top: 4px;"><strong>{sym}</strong> was not publicly traded on <strong>{new_date_str}</strong></div>
+            <div style="font-size:0.72rem; color:#94a3b8; margin-top:4px;">{sym} went public on <strong>{earliest_date_str}</strong> (IPO Price: ${earliest_price:,.2f}). Please select a date on or after {earliest_date_str}.</div>
+        </div>
+        """, unsafe_allow_html=True)
     else:
+        calc_price = float(trade["entry_price"])
         st.markdown(f"""
         <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #334155; border-radius: 8px; padding: 12px; margin: 12px 0; text-align: center;">
-            <div style="font-size:0.75rem; font-weight:700; color:#94a3b8; text-transform:uppercase;">Selected Purchase Date: <strong>{new_date_str}</strong></div>
+            <div style="font-size:0.75rem; font-weight:700; color:#94a3b8; text-transform:uppercase;">Selected Date for {sym}: <strong>{new_date_str}</strong></div>
             <div style="font-size: 1.4rem; font-weight: 800; color: #38bdf8; margin-top: 4px;">${calc_price:,.2f}</div>
             <div style="font-size:0.72rem; color:#fbbf24; margin-top:2px;">Using position entry price (market closed / holiday on selected date)</div>
         </div>

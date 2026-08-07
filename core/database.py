@@ -2820,6 +2820,25 @@ def update_paper_trade(trade_id, entry_date=None, entry_price=None, shares=None,
         conn.close()
 
 
+def fetch_earliest_trading_date(ticker):
+    """
+    Fetches the earliest historical trading date and price for ticker using yfinance period='max'.
+    Returns (earliest_date_str, price) or (None, None).
+    """
+    try:
+        import yfinance as yf
+        hist = yf.Ticker(ticker.upper()).history(period="max")
+        if not hist.empty and "Close" in hist:
+            first_dt = hist.index[0]
+            first_date_str = first_dt.strftime("%Y-%m-%d")
+            first_price = round(float(hist["Close"].iloc[0]), 2)
+            return first_date_str, first_price
+    except Exception as e:
+        logging.error(f"Error fetching earliest trading date for {ticker}: {e}")
+    return None, None
+
+
 # Automatically initialize database when database.py is imported or run directly
 init_db()
+
 
