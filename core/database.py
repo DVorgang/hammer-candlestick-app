@@ -2765,5 +2765,61 @@ def delete_paper_trade(trade_id):
         conn.close()
 
 
+def fetch_historical_price_on_date(ticker, date_str):
+    """
+    Fetches historical market closing price for ticker on date_str (YYYY-MM-DD or YYYY-MM-DD HH:MM).
+    If date_str falls on a weekend or holiday, returns the closing price of the nearest active trading session on or after that date.
+    Returns float price or None if fetch fails.
+    """
+    try:
+        import yfinance as yf
+        raw_date = str(date_str).split(" ")[0].strip()
+        target_dt = datetime.strptime(raw_date, "%Y-%m-%d")
+        end_dt = target_dt + timedelta(days=7)
+        
+        start_str = target_dt.strftime("%Y-%m-%d")
+        end_str = end_dt.strftime("%Y-%m-%d")
+        
+        hist = yf.Ticker(ticker.upper()).history(start=start_str, end=end_str)
+        if not hist.empty and "Close" in hist:
+            return round(float(hist["Close"].iloc[0]), 2)
+    except Exception as e:
+        logging.error(f"Error fetching historical price for {ticker} on {date_str}: {e}")
+    return None
+
+
+def update_paper_trade(trade_id, entry_date=None, entry_price=None, shares=None, total_invested=None):
+    """
+    Updates an existing paper trade's entry_date, entry_price, shares, and total_invested.
+    Returns (success: bool, message: str).
+    """
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        row = cursor.execute("SELECT ticker, entry_date, entry_price, shares, total_invested FROM paper_trades WHERE id = ?;", (trade_id,)).fetchone()
+        if not row:
+            return False, "Trade not found."
+
+        ticker = row["ticker"]
+        cur_entry_date = entry_date if entry_date is not None else row["entry_date"]
+        cur_entry_price = float(entry_price) if entry_price is not None else float(row["entry_price"])
+        cur_shares = float(shares) if shares is not None else float(row["shares"])
+        cur_total_invested = float(total_invested) if total_invested is not None else (cur_shares * cur_entry_price)
+
+        with conn:
+            conn.execute("""
+                UPDATE paper_trades
+                SET entry_date = ?, entry_price = ?, shares = ?, total_invested = ?
+                WHERE id = ?;
+            """, (cur_entry_date, cur_entry_price, cur_shares, cur_total_invested, trade_id))
+        return True, f"Successfully updated paper position for {ticker}!"
+    except sqlite3.Error as e:
+        logging.error(f"Database error updating paper trade {trade_id}: {e}")
+        return False, f"Database error: {e}"
+    finally:
+        conn.close()
+
+
 # Automatically initialize database when database.py is imported or run directly
 init_db()
+

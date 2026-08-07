@@ -8,7 +8,7 @@ Today's Change %, Portfolio Weight %, Entry Date, and Ticker/Sector Asset Alloca
 import streamlit as st
 import plotly.graph_objects as go
 import time
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import yfinance as yf
 from core import database
 
@@ -36,6 +36,119 @@ def get_ticker_sector(ticker):
     except Exception:
         pass
     return "Other / Miscellaneous"
+
+
+@st.dialog("✏️ Edit Position Date & Shares")
+def render_edit_trade_dialog(trade, key_prefix):
+    # Inject CSS to make dropdown popover menus 100% crisp, sharp, non-transparent and clear
+    st.markdown("""
+    <style>
+    div[data-baseweb="popover"], div[data-baseweb="menu"], ul[role="listbox"] {
+        background-color: #0f172a !important;
+        background: #0f172a !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        opacity: 1 !important;
+        border: 1px solid #334155 !important;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.9) !important;
+        border-radius: 8px !important;
+    }
+    div[data-baseweb="popover"] li, ul[role="listbox"] li, div[role="option"] {
+        background-color: #0f172a !important;
+        color: #f8fafc !important;
+        font-weight: 700 !important;
+        font-size: 0.9rem !important;
+        opacity: 1 !important;
+    }
+    div[data-baseweb="popover"] li:hover, ul[role="listbox"] li:hover, div[role="option"]:hover, [aria-selected="true"] {
+        background-color: #1e293b !important;
+        color: #38bdf8 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    t_id = trade["id"]
+    sym = trade["ticker"]
+    
+    st.write(f"Modify purchase date or position size for **{sym}**. Upon saving, the entry price will be **automatically recalculated** from historical market data.")
+    
+    raw_dt_str = str(trade.get("entry_date", ""))
+    try:
+        init_date = datetime.strptime(raw_dt_str.split(" ")[0], "%Y-%m-%d").date()
+    except Exception:
+        init_date = datetime.now().date()
+
+    current_year = datetime.now().year
+    years = list(range(current_year, current_year - 15, -1))
+    months = [
+        ("01", "01 - Jan"), ("02", "02 - Feb"), ("03", "03 - Mar"), ("04", "04 - Apr"),
+        ("05", "05 - May"), ("06", "06 - Jun"), ("07", "07 - Jul"), ("08", "08 - Aug"),
+        ("09", "09 - Sep"), ("10", "10 - Oct"), ("11", "11 - Nov"), ("12", "12 - Dec")
+    ]
+    month_labels = [m[1] for m in months]
+    month_val_map = {m[1]: m[0] for m in months}
+    month_idx_map = {m[0]: i for i, m in enumerate(months)}
+
+    init_year = init_date.year if init_date.year in years else current_year
+    init_month_str = f"{init_date.month:02d}"
+    init_month_idx = month_idx_map.get(init_month_str, 0)
+    init_day = init_date.day
+
+    with st.form(key=f"{key_prefix}_form_edit_{t_id}"):
+        st.markdown('<div style="font-size:0.82rem; font-weight:700; color:#94a3b8; margin-bottom:4px;">Purchase Date</div>', unsafe_allow_html=True)
+        dc1, dc2, dc3 = st.columns(3)
+        with dc1:
+            sel_year = st.selectbox("Year", options=years, index=years.index(init_year) if init_year in years else 0, key=f"{key_prefix}_dlg_yr_{t_id}")
+        with dc2:
+            sel_month_lbl = st.selectbox("Month", options=month_labels, index=init_month_idx, key=f"{key_prefix}_dlg_mo_{t_id}")
+        with dc3:
+            sel_day = st.selectbox("Day", options=list(range(1, 32)), index=min(init_day - 1, 30), key=f"{key_prefix}_dlg_dy_{t_id}")
+
+        sel_month_str = month_val_map[sel_month_lbl]
+
+        new_edit_shares = st.number_input(
+            "Shares Quantity",
+            min_value=0.001,
+            value=float(trade["shares"]),
+            step=1.0,
+            key=f"{key_prefix}_dlg_edit_shares_{t_id}"
+        )
+
+        st.markdown(f"""
+        <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid #334155; border-radius: 8px; padding: 10px; margin: 10px 0; text-align: center;">
+            <div style="font-size:0.75rem; color:#94a3b8;">Current Entry: <strong>${float(trade['entry_price']):,.2f}</strong> on <strong>{raw_dt_str}</strong></div>
+            <div style="font-size:0.72rem; color:#38bdf8; margin-top:2px;">Saving will auto-query historical market data for the selected date.</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        submitted = st.form_submit_button("Save & Recalculate Position", type="primary", use_container_width=True)
+        if submitted:
+            # Construct valid date (handling end of month overflow like Feb 30)
+            try:
+                valid_date = date(int(sel_year), int(sel_month_str), int(sel_day))
+            except ValueError:
+                # If day 31 selected for a 30-day month, fallback to last valid day of month
+                import calendar
+                max_d = calendar.monthrange(int(sel_year), int(sel_month_str))[1]
+                valid_date = date(int(sel_year), int(sel_month_str), max_d)
+
+            new_date_str = valid_date.strftime("%Y-%m-%d")
+            auto_price = database.fetch_historical_price_on_date(sym, new_date_str)
+            calc_price = auto_price if auto_price is not None else float(trade["entry_price"])
+            
+            full_entry_date = f"{new_date_str} 09:30"
+            updated_invested = float(new_edit_shares) * calc_price
+            ok, msg = database.update_paper_trade(
+                t_id,
+                entry_date=full_entry_date,
+                entry_price=calc_price,
+                shares=float(new_edit_shares),
+                total_invested=updated_invested
+            )
+            if ok:
+                st.session_state.pending_toast = msg
+                st.rerun()
+            else:
+                st.error(msg)
 
 
 def render_paper_trading_tab(subscriber, token):
@@ -597,8 +710,8 @@ def _render_paper_account(subscriber, account):
             """, unsafe_allow_html=True)
         st.markdown('<div style="margin-top: 10px;"></div>', unsafe_allow_html=True)
         
-        # Column Headers Row (10 Dedicated Columns)
-        h_c1, h_c2, h_c3, h_c4, h_c5, h_c6, h_c7, h_c8, h_c9, h_c10 = st.columns([1.5, 1.6, 1.4, 1.6, 1.2, 1.4, 1.6, 1.4, 2.0, 1.6])
+        # Column Headers Row (10 Dedicated Columns optimized for zero wrapping)
+        h_c1, h_c2, h_c3, h_c4, h_c5, h_c6, h_c7, h_c8, h_c9, h_c10 = st.columns([1.2, 1.6, 1.1, 1.4, 1.0, 1.0, 1.3, 1.1, 2.3, 2.6])
         with h_c1:
             st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Ticker</div>', unsafe_allow_html=True)
         with h_c2:
@@ -635,7 +748,7 @@ def _render_paper_account(subscriber, account):
             day_c = "#38df88" if day_chg >= 0 else "#f87171"
             day_s = "+" if day_chg >= 0 else ""
 
-            row_c1, row_c2, row_c3, row_c4, row_c5, row_c6, row_c7, row_c8, row_c9, row_c10 = st.columns([1.5, 1.6, 1.4, 1.6, 1.2, 1.4, 1.6, 1.4, 2.0, 1.6])
+            row_c1, row_c2, row_c3, row_c4, row_c5, row_c6, row_c7, row_c8, row_c9, row_c10 = st.columns([1.2, 1.6, 1.1, 1.4, 1.0, 1.0, 1.3, 1.1, 2.3, 2.6])
             with row_c1:
                 if st.button(f"Analyze {sym}", key=f"{key_prefix}_btn_deep_paper_{t_id}", use_container_width=True):
                     st.session_state.selected_ticker_detail = sym
@@ -657,24 +770,28 @@ def _render_paper_account(subscriber, account):
             with row_c9:
                 st.markdown(f"""
                 <div style="padding-top: 2px;">
-                    <span style="background: {pnl_bg}; color: {pnl_c}; border: 1px solid {pnl_border}; padding: 4px 8px; border-radius: 6px; font-weight: 800; font-size: 0.82rem; display: inline-block;">
+                    <span style="background: {pnl_bg}; color: {pnl_c}; border: 1px solid {pnl_border}; padding: 4px 8px; border-radius: 6px; font-weight: 800; font-size: 0.82rem; display: inline-block; white-space: nowrap;">
                         {pnl_s}${trade['unrealized_pnl']:,.2f} ({pnl_s}{trade['unrealized_pnl_pct']:.2f}%)
                     </span>
                 </div>
                 """, unsafe_allow_html=True)
             with row_c10:
-                bcol1, bcol2 = st.columns(2)
+                bcol1, bcol2, bcol3 = st.columns([1, 1, 1.1])
                 with bcol1:
+                    if st.button("Edit", key=f"{key_prefix}_btn_edit_paper_{t_id}", use_container_width=True):
+                        render_edit_trade_dialog(trade, key_prefix)
+                with bcol2:
                     if st.button("Sell", key=f"{key_prefix}_btn_sell_paper_{t_id}", type="primary", use_container_width=True):
                         ok, msg = database.close_paper_trade(t_id, exit_price=trade["current_price"])
                         if ok:
                             st.session_state.active_main_tab = "🎮 Paper Portfolio"
                             st.rerun()
-                with bcol2:
+                with bcol3:
                     if st.button("Remove", key=f"{key_prefix}_btn_del_paper_{t_id}", use_container_width=True):
                         database.delete_paper_trade(t_id)
                         st.session_state.active_main_tab = "🎮 Paper Portfolio"
                         st.rerun()
+
             st.markdown('<hr style="border-color:#1e293b; margin:10px 0;">', unsafe_allow_html=True)
 
         st.markdown('</div>', unsafe_allow_html=True)
