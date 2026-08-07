@@ -93,48 +93,59 @@ def render_edit_trade_dialog(trade, key_prefix):
     init_month_idx = month_idx_map.get(init_month_str, 0)
     init_day = init_date.day
 
-    with st.form(key=f"{key_prefix}_form_edit_{t_id}"):
-        st.markdown('<div style="font-size:0.82rem; font-weight:700; color:#94a3b8; margin-bottom:4px;">Purchase Date</div>', unsafe_allow_html=True)
-        dc1, dc2, dc3 = st.columns(3)
-        with dc1:
-            sel_year = st.selectbox("Year", options=years, index=years.index(init_year) if init_year in years else 0, key=f"{key_prefix}_dlg_yr_{t_id}")
-        with dc2:
-            sel_month_lbl = st.selectbox("Month", options=month_labels, index=init_month_idx, key=f"{key_prefix}_dlg_mo_{t_id}")
-        with dc3:
-            sel_day = st.selectbox("Day", options=list(range(1, 32)), index=min(init_day - 1, 30), key=f"{key_prefix}_dlg_dy_{t_id}")
+    st.markdown('<div style="font-size:0.82rem; font-weight:700; color:#94a3b8; margin-bottom:4px;">Purchase Date</div>', unsafe_allow_html=True)
+    dc1, dc2, dc3 = st.columns(3)
+    with dc1:
+        sel_year = st.selectbox("Year", options=years, index=years.index(init_year) if init_year in years else 0, key=f"{key_prefix}_dlg_yr_{t_id}")
+    with dc2:
+        sel_month_lbl = st.selectbox("Month", options=month_labels, index=init_month_idx, key=f"{key_prefix}_dlg_mo_{t_id}")
+    with dc3:
+        sel_day = st.selectbox("Day", options=list(range(1, 32)), index=min(init_day - 1, 30), key=f"{key_prefix}_dlg_dy_{t_id}")
 
-        sel_month_str = month_val_map[sel_month_lbl]
+    sel_month_str = month_val_map[sel_month_lbl]
 
-        new_edit_shares = st.number_input(
-            "Shares Quantity",
-            min_value=0.001,
-            value=float(trade["shares"]),
-            step=1.0,
-            key=f"{key_prefix}_dlg_edit_shares_{t_id}"
-        )
+    # Handle end-of-month dates cleanly
+    try:
+        valid_date = date(int(sel_year), int(sel_month_str), int(sel_day))
+    except ValueError:
+        import calendar
+        max_d = calendar.monthrange(int(sel_year), int(sel_month_str))[1]
+        valid_date = date(int(sel_year), int(sel_month_str), max_d)
 
+    new_date_str = valid_date.strftime("%Y-%m-%d")
+
+    new_edit_shares = st.number_input(
+        "Shares Quantity",
+        min_value=0.001,
+        value=float(trade["shares"]),
+        step=1.0,
+        key=f"{key_prefix}_dlg_edit_shares_{t_id}"
+    )
+
+    # ─── LIVE AUTO-CALCULATED PRICE PREVIEW CARD ───
+    auto_price = database.fetch_historical_price_on_date(sym, new_date_str)
+    calc_price = auto_price if auto_price is not None else float(trade["entry_price"])
+
+    if auto_price is not None:
         st.markdown(f"""
-        <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid #334155; border-radius: 8px; padding: 10px; margin: 10px 0; text-align: center;">
-            <div style="font-size:0.75rem; color:#94a3b8;">Current Entry: <strong>${float(trade['entry_price']):,.2f}</strong> on <strong>{raw_dt_str}</strong></div>
-            <div style="font-size:0.72rem; color:#38bdf8; margin-top:2px;">Saving will auto-query historical market data for the selected date.</div>
+        <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #38df88; border-radius: 8px; padding: 12px; margin: 12px 0; text-align: center;">
+            <div style="font-size:0.75rem; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.05em;">Auto-Calculated Historical Share Price</div>
+            <div style="font-size: 1.6rem; font-weight: 800; color: #38df88; margin-top: 4px;">${calc_price:,.2f}</div>
+            <div style="font-size:0.72rem; color:#94a3b8; margin-top:2px;">Market closing price for <strong>{sym}</strong> on <strong>{new_date_str}</strong></div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div style="background: rgba(15, 23, 42, 0.9); border: 1px solid #334155; border-radius: 8px; padding: 12px; margin: 12px 0; text-align: center;">
+            <div style="font-size:0.75rem; font-weight:700; color:#94a3b8; text-transform:uppercase;">Selected Purchase Date: <strong>{new_date_str}</strong></div>
+            <div style="font-size: 1.4rem; font-weight: 800; color: #38bdf8; margin-top: 4px;">${calc_price:,.2f}</div>
+            <div style="font-size:0.72rem; color:#fbbf24; margin-top:2px;">Using position entry price (market closed / holiday on selected date)</div>
         </div>
         """, unsafe_allow_html=True)
 
+    with st.form(key=f"{key_prefix}_form_edit_{t_id}"):
         submitted = st.form_submit_button("Save & Recalculate Position", type="primary", use_container_width=True)
         if submitted:
-            # Construct valid date (handling end of month overflow like Feb 30)
-            try:
-                valid_date = date(int(sel_year), int(sel_month_str), int(sel_day))
-            except ValueError:
-                # If day 31 selected for a 30-day month, fallback to last valid day of month
-                import calendar
-                max_d = calendar.monthrange(int(sel_year), int(sel_month_str))[1]
-                valid_date = date(int(sel_year), int(sel_month_str), max_d)
-
-            new_date_str = valid_date.strftime("%Y-%m-%d")
-            auto_price = database.fetch_historical_price_on_date(sym, new_date_str)
-            calc_price = auto_price if auto_price is not None else float(trade["entry_price"])
-            
             full_entry_date = f"{new_date_str} 09:30"
             updated_invested = float(new_edit_shares) * calc_price
             ok, msg = database.update_paper_trade(
