@@ -2648,6 +2648,14 @@ def add_paper_trade(subscriber_id, ticker, total_invested=None, shares=None, ent
     conn = get_db_connection()
     try:
         with conn:
+            existing = conn.execute("""
+                SELECT id FROM paper_trades 
+                WHERE subscriber_id = ? AND account_label = ? AND ticker = ? AND status = 'OPEN';
+            """, (subscriber_id, account_label, ticker)).fetchone()
+
+            if existing:
+                return False, f"An open position for {ticker} already exists in portfolio '{account_label}'. Please edit or close the existing position."
+
             conn.execute("""
                 INSERT OR IGNORE INTO paper_accounts (subscriber_id, account_label)
                 VALUES (?, ?);
