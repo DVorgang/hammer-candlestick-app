@@ -22,6 +22,19 @@ SECTOR_MAPPING = {
     "TBLA": "Communication Services", "SIRI": "Communication Services", "WMT": "Consumer Defensive"
 }
 
+# Global Company Name Cache for fast lookup
+COMPANY_NAME_MAPPING = {
+    "AAPL": "Apple Inc.", "MSFT": "Microsoft Corp.", "NVDA": "NVIDIA Corp.",
+    "AMZN": "Amazon.com Inc.", "GOOGL": "Alphabet Inc.", "META": "Meta Platforms Inc.",
+    "TSLA": "Tesla Inc.", "AMD": "Advanced Micro Devices", "NFLX": "Netflix Inc.",
+    "INTC": "Intel Corp.", "BABA": "Alibaba Group", "JPM": "JPMorgan Chase & Co.",
+    "BAC": "Bank of America", "SPY": "SPDR S&P 500 ETF", "QQQ": "Invesco QQQ Trust",
+    "IWM": "iShares Russell 2000", "DIA": "SPDR Dow Jones Industrial",
+    "TBLA": "Taboola.com Ltd.", "SIRI": "Sirius XM Holdings", "WMT": "Walmart Inc.",
+    "CL": "Colgate-Palmolive Co.", "CMCSA": "Comcast Corp.", "CCOI": "Cogent Communications",
+    "PINS": "Pinterest Inc.", "SLS": "SELLAS Life Sciences Group"
+}
+
 
 def get_ticker_sector(ticker):
     sym = ticker.upper().strip()
@@ -36,6 +49,22 @@ def get_ticker_sector(ticker):
     except Exception:
         pass
     return "Other / Miscellaneous"
+
+
+def get_ticker_company_name(ticker):
+    sym = ticker.upper().strip()
+    if sym in COMPANY_NAME_MAPPING:
+        return COMPANY_NAME_MAPPING[sym]
+    try:
+        inf = yf.Ticker(sym).info
+        name = inf.get("longName") or inf.get("shortName")
+        if name:
+            COMPANY_NAME_MAPPING[sym] = name
+            return name
+    except Exception:
+        pass
+    return sym
+
 
 
 @st.dialog("✏️ Edit Position Date & Shares")
@@ -619,6 +648,7 @@ def _render_paper_account(subscriber, account):
         pnl = cur_val - inv
         pnl_pct = (pnl / inv * 100.0) if inv > 0 else 0.0
         sector = get_ticker_sector(sym)
+        company_name = get_ticker_company_name(sym)
         daily_chg = ticker_daily_changes.get(sym, 0.0)
 
         if pnl >= 0:
@@ -632,6 +662,7 @@ def _render_paper_account(subscriber, account):
         processed_open_trades.append({
             "id": t["id"],
             "ticker": sym,
+            "company_name": company_name,
             "sector": sector,
             "entry_date": t["entry_date"],
             "entry_price": entry_p,
@@ -758,27 +789,29 @@ def _render_paper_account(subscriber, account):
             """, unsafe_allow_html=True)
         st.markdown('<div style="margin-top: 10px;"></div>', unsafe_allow_html=True)
         
-        # Column Headers Row (10 Dedicated Columns optimized for zero wrapping)
-        h_c1, h_c2, h_c3, h_c4, h_c5, h_c6, h_c7, h_c8, h_c9, h_c10 = st.columns([1.2, 1.6, 1.1, 1.4, 1.0, 1.0, 1.3, 1.1, 2.3, 2.6])
+        # Column Headers Row (11 Dedicated Columns optimized for zero wrapping)
+        h_c1, h_c2, h_c3, h_c4, h_c5, h_c6, h_c7, h_c8, h_c9, h_c10, h_c11 = st.columns([1.2, 2.2, 1.5, 1.1, 1.3, 0.9, 0.9, 1.2, 1.0, 2.1, 2.4])
         with h_c1:
             st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Ticker</div>', unsafe_allow_html=True)
         with h_c2:
-            st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Sector</div>', unsafe_allow_html=True)
+            st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Company</div>', unsafe_allow_html=True)
         with h_c3:
-            st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Entry Price</div>', unsafe_allow_html=True)
+            st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Sector</div>', unsafe_allow_html=True)
         with h_c4:
-            st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Entry Date</div>', unsafe_allow_html=True)
+            st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Entry Price</div>', unsafe_allow_html=True)
         with h_c5:
-            st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Shares</div>', unsafe_allow_html=True)
+            st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Entry Date</div>', unsafe_allow_html=True)
         with h_c6:
-            st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Weight %</div>', unsafe_allow_html=True)
+            st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Shares</div>', unsafe_allow_html=True)
         with h_c7:
-            st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Market Value</div>', unsafe_allow_html=True)
+            st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Weight %</div>', unsafe_allow_html=True)
         with h_c8:
-            st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Today %</div>', unsafe_allow_html=True)
+            st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Market Value</div>', unsafe_allow_html=True)
         with h_c9:
-            st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Gain / Loss</div>', unsafe_allow_html=True)
+            st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Today %</div>', unsafe_allow_html=True)
         with h_c10:
+            st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">Gain / Loss</div>', unsafe_allow_html=True)
+        with h_c11:
             st.markdown('<div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; text-align: center;">Actions</div>', unsafe_allow_html=True)
 
         st.markdown('<hr style="border-color: #334155; margin: 8px 0 14px 0;">', unsafe_allow_html=True)
@@ -786,6 +819,7 @@ def _render_paper_account(subscriber, account):
         for trade in processed_open_trades:
             t_id = trade["id"]
             sym = trade["ticker"]
+            c_name = trade["company_name"]
             sec_name = trade["sector"]
             pnl_c = "#38df88" if trade["unrealized_pnl"] >= 0 else "#f87171"
             pnl_bg = "rgba(56, 223, 136, 0.12)" if trade["unrealized_pnl"] >= 0 else "rgba(248, 113, 113, 0.12)"
@@ -796,26 +830,28 @@ def _render_paper_account(subscriber, account):
             day_c = "#38df88" if day_chg >= 0 else "#f87171"
             day_s = "+" if day_chg >= 0 else ""
 
-            row_c1, row_c2, row_c3, row_c4, row_c5, row_c6, row_c7, row_c8, row_c9, row_c10 = st.columns([1.2, 1.6, 1.1, 1.4, 1.0, 1.0, 1.3, 1.1, 2.3, 2.6])
+            row_c1, row_c2, row_c3, row_c4, row_c5, row_c6, row_c7, row_c8, row_c9, row_c10, row_c11 = st.columns([1.2, 2.2, 1.5, 1.1, 1.3, 0.9, 0.9, 1.2, 1.0, 2.1, 2.4])
             with row_c1:
                 if st.button(f"Analyze {sym}", key=f"{key_prefix}_btn_deep_paper_{t_id}", use_container_width=True):
                     st.session_state.selected_ticker_detail = sym
                     st.rerun()
             with row_c2:
-                st.markdown(f'<div style="color:#38bdf8; font-weight:600; font-size:0.82rem; padding-top:6px;">{sec_name}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="font-weight:700; color:#f8fafc; font-size:0.83rem; padding-top:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{c_name}">{c_name}</div>', unsafe_allow_html=True)
             with row_c3:
-                st.markdown(f'<div style="font-weight:700; color:#f8fafc; padding-top:6px;">${trade["entry_price"]:,.2f}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="color:#38bdf8; font-weight:600; font-size:0.82rem; padding-top:6px;">{sec_name}</div>', unsafe_allow_html=True)
             with row_c4:
-                st.markdown(f'<div style="color:#94a3b8; font-size:0.78rem; padding-top:6px;">{trade["entry_date"]}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="font-weight:700; color:#f8fafc; padding-top:6px;">${trade["entry_price"]:,.2f}</div>', unsafe_allow_html=True)
             with row_c5:
-                st.markdown(f'<div style="font-weight:700; color:#f8fafc; padding-top:6px;">{trade["shares"]:.2f}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="color:#94a3b8; font-size:0.78rem; padding-top:6px;">{trade["entry_date"]}</div>', unsafe_allow_html=True)
             with row_c6:
-                st.markdown(f'<div style="color:#38bdf8; font-size:0.85rem; font-weight:700; padding-top:6px;">{trade["weight_pct"]:.1f}%</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="font-weight:700; color:#f8fafc; padding-top:6px;">{trade["shares"]:.2f}</div>', unsafe_allow_html=True)
             with row_c7:
-                st.markdown(f'<div style="font-weight:700; color:#f8fafc; padding-top:6px;">${trade["current_value"]:,.2f}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="color:#38bdf8; font-size:0.85rem; font-weight:700; padding-top:6px;">{trade["weight_pct"]:.1f}%</div>', unsafe_allow_html=True)
             with row_c8:
-                st.markdown(f'<div style="color:{day_c}; font-size:0.85rem; font-weight:700; padding-top:6px;">{day_s}{day_chg:.2f}%</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="font-weight:700; color:#f8fafc; padding-top:6px;">${trade["current_value"]:,.2f}</div>', unsafe_allow_html=True)
             with row_c9:
+                st.markdown(f'<div style="color:{day_c}; font-size:0.85rem; font-weight:700; padding-top:6px;">{day_s}{day_chg:.2f}%</div>', unsafe_allow_html=True)
+            with row_c10:
                 st.markdown(f"""
                 <div style="padding-top: 2px;">
                     <span style="background: {pnl_bg}; color: {pnl_c}; border: 1px solid {pnl_border}; padding: 4px 8px; border-radius: 6px; font-weight: 800; font-size: 0.82rem; display: inline-block; white-space: nowrap;">
@@ -823,7 +859,7 @@ def _render_paper_account(subscriber, account):
                     </span>
                 </div>
                 """, unsafe_allow_html=True)
-            with row_c10:
+            with row_c11:
                 bcol1, bcol2, bcol3 = st.columns([1, 1, 1.1])
                 with bcol1:
                     if st.button("Edit", key=f"{key_prefix}_btn_edit_paper_{t_id}", use_container_width=True):

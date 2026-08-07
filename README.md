@@ -68,6 +68,7 @@ The Streamlit app includes:
 - Watchlist and alert preference management.
 - 3-Engine Control Hub (1-click toggles for Technical, Growth, and Heartbeat engines).
 - Secondary email recipient management.
+- **Paper Trading Simulator & Portfolio Manager**: Complete paper position tracking with real-time mark-to-market P&L, 11-column Active Holdings table (`TICKER`, `COMPANY`, `SECTOR`, `ENTRY PRICE`, `ENTRY DATE`, `SHARES`, `WEIGHT %`, `MARKET VALUE`, `TODAY %`, `GAIN / LOSS`, `ACTIONS`), dynamic purchase date editing with auto-calculated historical prices from `yfinance`, and stock IPO date boundaries.
 - **Paper Trading Position Sizer:** Customizable benchmark position size (`$250`, `$500 (Default)`, `$1,000`, or `Custom $`) in Section 2.
 - Stock search and deep-dive analysis.
 - Live quotes and interactive technical charts with **automatic Target ($34.20), Entry ($28.50), and Stop-Loss ($27.07) line overlays**.
