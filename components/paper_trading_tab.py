@@ -123,7 +123,7 @@ def render_edit_trade_dialog(trade, key_prefix):
         sel_day = st.selectbox("Day", options=list(range(1, 32)), index=min(init_day - 1, 30), key=f"{key_prefix}_dlg_dy_{t_id}")
 
     if earliest_date_str:
-        st.markdown(f'<div style="font-size:0.72rem; color:#38bdf8; margin-top:-6px; margin-bottom:10px;">Showing valid trading years for {sym}: <strong>{ipo_year} – {current_year}</strong> (IPO: {earliest_date_str})</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="font-size:0.72rem; color:#38bdf8; margin-top:-6px; margin-bottom:10px;">Showing available Yahoo Finance trading years for {sym}: <strong>{ipo_year} – {current_year}</strong> (Earliest Data Record: {earliest_date_str})</div>', unsafe_allow_html=True)
 
     sel_month_str = month_val_map[sel_month_lbl]
 
@@ -165,9 +165,9 @@ def render_edit_trade_dialog(trade, key_prefix):
         calc_price = float(trade["entry_price"])
         st.markdown(f"""
         <div style="background: rgba(248, 113, 113, 0.12); border: 1px solid #f87171; border-radius: 8px; padding: 12px; margin: 12px 0; text-align: center;">
-            <div style="font-size:0.75rem; font-weight:700; color:#f87171; text-transform:uppercase;">⚠️ Pre-IPO Date Selected for {sym}</div>
-            <div style="font-size: 0.85rem; font-weight: 700; color: #f87171; margin-top: 4px;"><strong>{sym}</strong> was not publicly traded on <strong>{new_date_str}</strong></div>
-            <div style="font-size:0.72rem; color:#94a3b8; margin-top:4px;">{sym} went public on <strong>{earliest_date_str}</strong> (IPO Price: ${earliest_price:,.2f}). Please select a date on or after {earliest_date_str}.</div>
+            <div style="font-size:0.75rem; font-weight:700; color:#f87171; text-transform:uppercase;">⚠️ Date Out of Range for {sym}</div>
+            <div style="font-size: 0.85rem; font-weight: 700; color: #f87171; margin-top: 4px;">No Yahoo Finance market data for <strong>{sym}</strong> on <strong>{new_date_str}</strong></div>
+            <div style="font-size:0.72rem; color:#94a3b8; margin-top:4px;">{sym} digital dataset begins on <strong>{earliest_date_str}</strong> (Initial Record Price: ${earliest_price:,.2f}). Please select a date on or after {earliest_date_str}.</div>
         </div>
         """, unsafe_allow_html=True)
     else:
