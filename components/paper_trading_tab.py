@@ -78,7 +78,7 @@ def render_edit_trade_dialog(trade, key_prefix):
         init_date = datetime.now().date()
 
     current_year = datetime.now().year
-    years = list(range(current_year, current_year - 15, -1))
+    years = list(range(current_year, 1979, -1))
     months = [
         ("01", "01 - Jan"), ("02", "02 - Feb"), ("03", "03 - Mar"), ("04", "04 - Apr"),
         ("05", "05 - May"), ("06", "06 - Jun"), ("07", "07 - Jul"), ("08", "08 - Aug"),
