@@ -82,8 +82,23 @@ def render_edit_trade_dialog(trade, key_prefix):
     except Exception:
         init_date = datetime.now().date()
 
+    # Fetch stock earliest trading date (IPO date)
+    earliest_date_str, earliest_price = database.fetch_earliest_trading_date(sym)
+    
     current_year = datetime.now().year
-    years = list(range(current_year, 1979, -1))
+    if earliest_date_str:
+        try:
+            ipo_year = int(earliest_date_str.split("-")[0])
+        except Exception:
+            ipo_year = 1980
+    else:
+        ipo_year = 1980
+
+    # Dynamically restrict Year dropdown to stock's actual trading history (down to IPO year)
+    years = list(range(current_year, ipo_year - 1, -1))
+    if not years:
+        years = [current_year]
+
     months = [
         ("01", "01 - Jan"), ("02", "02 - Feb"), ("03", "03 - Mar"), ("04", "04 - Apr"),
         ("05", "05 - May"), ("06", "06 - Jun"), ("07", "07 - Jul"), ("08", "08 - Aug"),
@@ -93,7 +108,7 @@ def render_edit_trade_dialog(trade, key_prefix):
     month_val_map = {m[1]: m[0] for m in months}
     month_idx_map = {m[0]: i for i, m in enumerate(months)}
 
-    init_year = init_date.year if init_date.year in years else current_year
+    init_year = init_date.year if init_date.year in years else years[0]
     init_month_str = f"{init_date.month:02d}"
     init_month_idx = month_idx_map.get(init_month_str, 0)
     init_day = init_date.day
@@ -106,6 +121,9 @@ def render_edit_trade_dialog(trade, key_prefix):
         sel_month_lbl = st.selectbox("Month", options=month_labels, index=init_month_idx, key=f"{key_prefix}_dlg_mo_{t_id}")
     with dc3:
         sel_day = st.selectbox("Day", options=list(range(1, 32)), index=min(init_day - 1, 30), key=f"{key_prefix}_dlg_dy_{t_id}")
+
+    if earliest_date_str:
+        st.markdown(f'<div style="font-size:0.72rem; color:#38bdf8; margin-top:-6px; margin-bottom:10px;">Showing valid trading years for {sym}: <strong>{ipo_year} – {current_year}</strong> (IPO: {earliest_date_str})</div>', unsafe_allow_html=True)
 
     sel_month_str = month_val_map[sel_month_lbl]
 
